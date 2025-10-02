@@ -34,7 +34,6 @@ except Exception as e:
     print(f"Parser error: {e}")
     sys.exit(1)
 
-# Load datasets and transforms
 trainset, testset = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['dataset']
 transform_train, transform_test = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['transform']
 
@@ -56,6 +55,7 @@ class adjust_lr:
         return lr
 
 def train(save_path, length, num, words, feature_dim):
+    best_acc = 0  # Khôi phục biến này (dù không dùng)
     best_mAP = 0
     best_epoch = 1
     print('==> Building model..')
@@ -71,16 +71,19 @@ def train(save_path, length, num, words, feature_dim):
     for k in range(d):
         for j in range(d):
             matrix[j, k] = math.cos((j+0.5)*k*math.pi/d)
-    matrix[:, 0] /= math.sqrt(2)
-    matrix /= math.sqrt(d/2)
+    matrix[:, 0] /= math.sqrt(2)    # divided by sqrt(2)
+    matrix /= math.sqrt(d/2)    # divided by sqrt(N/2) to got orthonormal
     code_books = torch.Tensor(num, d, words)
     code_books[0] = matrix[:, :words]
     for i in range(1, num):
         code_books[i] = matrix @ code_books[i-1]
 
-    net = resnet20_pq(num_layers=20, feature_dim=feature_dim) if args.cross_dataset or args.dataset == "vggface2" else \
-          resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
-    metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=40 if args.cross_dataset or args.dataset == "vggface2" else 20, m=args.margin)
+    if args.cross_dataset or args.dataset == "vggface2":
+        net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=40, m=args.margin)
+    else:  # for small input size dataset
+        net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
+        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=20, m=args.margin)
 
     num_books = metric.num_books
     len_word = metric.len_word
@@ -91,14 +94,20 @@ def train(save_path, length, num, words, feature_dim):
     print("num. of codebooks: ", num_books)
     print("num. of words per book: ", num_words)
     print("dim. of word: ", len_word)
-    print("code length: %d-bit \t learning rate: %.3f \t scale length: %d \t penalty margin: %.2f \t balance_weight: %.3f" % (len_bit, args.lr, metric.s, metric.m, args.miu))
+    print("code length: %d-bit \t learning rate: %.3f \t scale length: %d \t penalty margin: %.2f \t balance_weight: %.3f" % 
+          (len_bit, args.lr, metric.s, metric.m, args.miu))
     net = nn.DataParallel(net).to(device)
     metric = nn.DataParallel(metric).to(device)
     cudnn.benchmark = True
 
-    optimizer = optim.SGD([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4, momentum=0.9)
-    scheduler = adjust_lr(35 if args.dataset in ["facescrub", "cfw", "youtube"] else 20, 0.5)
-    EPOCHS = 200 if args.dataset in ["facescrub", "cfw", "youtube"] else 160
+    if args.dataset in ["facescrub", "cfw", "youtube"]:
+        optimizer = optim.SGD([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4, momentum=0.9)
+        scheduler = adjust_lr(35, 0.5)
+        EPOCHS = 200
+    else:
+        scheduler = adjust_lr(20, 0.5)
+        EPOCHS = 160
+        optimizer = optim.SGD([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4, momentum=0.9)
 
     since = time.time()
     best_loss = 1e3
@@ -114,10 +123,13 @@ def train(save_path, length, num, words, feature_dim):
             transformed_images = transform_train(inputs)
             features = net(transformed_images)
             output1, output2, xc_probs = metric(features, targets)
-            loss_clf1 = [criterion(output1[:, i, :], targets) for i in range(num_books)]
-            loss_clf2 = [criterion(output2[:, i, :], targets) for i in range(num_books)]
+            # Subspacewise joint clf. loss
+            loss_clf1 = [criterion(output1[:, i, :], targets) for i in range(num_books)]  # logits from original features
+            loss_clf2 = [criterion(output2[:, i, :], targets) for i in range(num_books)]  # logits from soft quantized features
             loss_clf = 0.5 * (sum(loss_clf1) / len(loss_clf1) + sum(loss_clf2) / len(loss_clf2))
-            xc_entropy = [Distributions.categorical.Categorical(probs=xc_probs[:, i, :]).entropy().sum() for i in range(num_books)]
+
+            # Entropy minimization
+            xc_entropy = [Distributions.categorical.Categorical(probs=xc_probs[:, i, :]).entropy().sum() for i in range(num_books)]  # -p * logP
             loss_entropy = sum(xc_entropy) / (num_books * len(inputs))
             loss = loss_clf + args.miu * loss_entropy
             optimizer.zero_grad()
@@ -128,6 +140,7 @@ def train(save_path, length, num, words, feature_dim):
         epoch_elapsed = time.time() - start
         print('Epoch %d | Loss: %.4f' % (epoch+1, losses.avg))
         print("Epoch Completed in {:.0f}min {:.0f}s".format(epoch_elapsed // 60, epoch_elapsed % 60))
+        # scheduler.step()  # Khôi phục dòng này (commented trong gốc)
 
         if (epoch+1) % 5 == 0:
             net.eval()
@@ -143,8 +156,9 @@ def train(save_path, length, num, words, feature_dim):
 
             if losses.avg < best_loss:
                 best_loss = losses.avg
+                # best_mAP = mAP  # Khôi phục dòng này (commented trong gốc)
                 print('Saving..')
-                checkpoint_dir = '/kaggle/working/opqn-fork/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+                checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
                 os.makedirs(checkpoint_dir, exist_ok=True)
                 torch.save({'backbone': net.state_dict(), 'mlp': metric.module.mlp}, os.path.join(checkpoint_dir, save_path))
                 best_epoch = epoch + 1
@@ -156,14 +170,15 @@ def train(save_path, length, num, words, feature_dim):
 def test(load_path, length, num, words, feature_dim):
     len_bit = int(num * math.log(words, 2))
     assert length == len_bit, "something went wrong with code length"
+    # top_list = torch.linspace(20, 300, 15).int().tolist()  # Khôi phục dòng này (commented trong gốc)
 
     d = int(feature_dim / num)
     matrix = torch.randn(d, d)
     for k in range(d):
         for j in range(d):
             matrix[j, k] = math.cos((j+0.5)*k*math.pi/d)
-    matrix[:, 0] /= math.sqrt(2)
-    matrix /= math.sqrt(d/2)
+    matrix[:, 0] /= math.sqrt(2)    # divided by sqrt(2)
+    matrix /= math.sqrt(d/2)    # divided by sqrt(N/2)
     code_books = torch.Tensor(num, d, words)
     code_books[0] = matrix[:, :words]
     for i in range(1, num):
@@ -171,9 +186,13 @@ def test(load_path, length, num, words, feature_dim):
 
     print("===============evaluation on model %s===============" % load_path)
 
-    net = resnet20_pq(num_layers=20, feature_dim=feature_dim) if args.cross_dataset else \
-          resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4) if args.dataset in ["facescrub", "cfw", "youtube"] else \
-          resnet20_pq(num_layers=20, feature_dim=feature_dim)
+    if args.cross_dataset:
+        net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+    else:
+        if args.dataset in ["facescrub", "cfw", "youtube"]:
+            net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
+        else:
+            net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
 
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=False, num_workers=4)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=4)
@@ -189,7 +208,7 @@ def test(load_path, length, num, words, feature_dim):
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     net = nn.DataParallel(net).to(device)
 
-    checkpoint_dir = '/kaggle/working/opqn-fork/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+    checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
     checkpoint = torch.load(os.path.join(checkpoint_dir, load_path))
     net.load_state_dict(checkpoint['backbone'])
     mlp_weight = checkpoint['mlp']
@@ -199,8 +218,11 @@ def test(load_path, length, num, words, feature_dim):
         index, train_labels = compute_quant_indexing(transform_test, train_loader, net, len_word, mlp_weight, device)
         start = datetime.now()
         query_features, test_labels = compute_quant(transform_test, test_loader, net, device)
-        top_k = 10 if args.dataset == "vggface2" else 5
-        mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=top_k)
+        if args.dataset != "vggface2":
+            mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5)
+        else:
+            mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=10)
+
         time_elapsed = datetime.now() - start
         print("Query completed in %d ms" % int(time_elapsed.total_seconds() * 1000))
         print('[Evaluate Phase] MAP: %.2f%% top_k: %.2f%%' % (100. * float(mAP), 100. * float(top_k)))
@@ -219,7 +241,13 @@ if __name__ == "__main__":
             if args.cross_dataset:
                 feature_dim = num_s * words_s
             else:
-                feature_dim = 512 if args.len[i] != 36 else 516 if args.dataset != "vggface2" else num_s * words_s
+                if args.dataset != "vggface2":
+                    if args.len[i] != 36:
+                        feature_dim = 512
+                    else:
+                        feature_dim = 516
+                else:
+                    feature_dim = num_s * words_s
             test(args.load[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
     else:
         if len(args.save) != len(args.num) or len(args.save) != len(args.len) or len(args.save) != len(args.words):
@@ -230,15 +258,19 @@ if __name__ == "__main__":
             args.len = args.len[:min_len]
             args.words = args.words[:min_len]
         for i, (num_s, words_s) in enumerate(zip(args.num, args.words)):
-            sys.stdout = Logger(os.path.join(save_dir, str(args.len[i]) + 'bits' + '_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
-            print("[Configuration] Training on dataset: %s\n  Len_bits: %d\n Batch_size: %d\n learning rate: %.3f\n num_books: %d\n num_words: %d" % (args.dataset, args.len[i], args.bs, args.lr, num_s, words_s))
+            sys.stdout = Logger(os.path.join(save_dir,
+                str(args.len[i]) + 'bits' + '_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
+            print("[Configuration] Training on dataset: %s\n  Len_bits: %d\n Batch_size: %d\n learning rate: %.3f\n num_books: %d\n num_words: %d" %
+                  (args.dataset, args.len[i], args.bs, args.lr, num_s, words_s))
             print("HyperParams:\nmargin: %.3f\t miu: %.4f" % (args.margin, args.miu))
             if args.dataset != "vggface2":
-                feature_dim = 512 if args.len[i] != 36 else 516
+                if args.len[i] != 36:
+                    feature_dim = 512
+                else:
+                    feature_dim = 516
             else:
                 feature_dim = num_s * words_s
             train(args.save[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
-
 
 
 
