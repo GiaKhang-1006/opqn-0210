@@ -9,7 +9,7 @@ def get_datasets_transform(dataset, data_dir="./data", cross_eval=False):
     # Auto detect Kaggle and use /kaggle/input/ processed paths
     if 'kaggle' in os.environ.get('PWD', ''):
         if dataset == 'facescrub':
-            base_path = '/kaggle/input/processed-facescrub/'  # Thay bằng tên dataset bạn upload
+            base_path = '/kaggle/input/processed-facescrub/processed-facescrub/'  # Thay bằng tên dataset bạn upload
         else:
             base_path = data_dir  # Fallback cho dataset khác
     else:
