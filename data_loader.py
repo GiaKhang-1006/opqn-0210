@@ -6,12 +6,10 @@ import os
 def get_datasets_transform(dataset, data_dir="./data", cross_eval=False):
     to_tensor = transforms.ToTensor()
 
-    # Auto detect Kaggle and use /kaggle/input/ paths
+    # Auto detect Kaggle and use /kaggle/input/ processed paths
     if 'kaggle' in os.environ.get('PWD', ''):
         if dataset == 'facescrub':
-            base_path = '/kaggle/input/facescrub-full/'  # Thay bằng tên dataset bạn add (kiểm tra tab Data)
-        elif dataset == 'vggface2':
-            base_path = '/kaggle/input/vggface2-112x112/'  # Thay bằng tên dataset bạn add
+            base_path = '/kaggle/input/processed-facescrub/'  # Thay bằng tên dataset bạn upload
         else:
             base_path = data_dir  # Fallback cho dataset khác
     else:
@@ -19,15 +17,19 @@ def get_datasets_transform(dataset, data_dir="./data", cross_eval=False):
 
     # Define paths with folder existence check
     if dataset != "vggface2":
-        train_path = os.path.join(base_path, dataset, "train") if os.path.exists(os.path.join(base_path, dataset, "train")) else os.path.join(base_path, dataset)
-        test_path = os.path.join(base_path, dataset, "test") if os.path.exists(os.path.join(base_path, dataset, "test")) else train_path
+        train_path = os.path.join(base_path, "train")  # Thay vì dataset/train
+        test_path = os.path.join(base_path, "test")    # Thay vì dataset/test
+        if not os.path.exists(train_path):
+            train_path = os.path.join(base_path)  # Fallback nếu không có split
+        if not os.path.exists(test_path):
+            test_path = train_path  # Fallback
     else:
         if cross_eval:  # vggface2 cross-dataset
-            train_path = os.path.join(base_path, "vggface2", "cross_train") if os.path.exists(os.path.join(base_path, "vggface2", "cross_train")) else os.path.join(base_path, "vggface2", "train")
-            test_path = os.path.join(base_path, "vggface2", "cross_test") if os.path.exists(os.path.join(base_path, "vggface2", "cross_test")) else os.path.join(base_path, "vggface2", "test")
+            train_path = os.path.join(base_path, "cross_train") if os.path.exists(os.path.join(base_path, "cross_train")) else os.path.join(base_path, "train")
+            test_path = os.path.join(base_path, "cross_test") if os.path.exists(os.path.join(base_path, "cross_test")) else os.path.join(base_path, "test")
         else:
-            train_path = os.path.join(base_path, "vggface2", "train")
-            test_path = os.path.join(base_path, "vggface2", "test")
+            train_path = os.path.join(base_path, "train")
+            test_path = os.path.join(base_path, "test")
 
     # Debug print
     print(f"Dataset: {dataset}, Cross-eval: {cross_eval}")
