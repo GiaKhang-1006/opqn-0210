@@ -25,7 +25,8 @@ parser.add_argument('--len', nargs='+', type=int, help='length of hashing codes,
 parser.add_argument('--dataset', type=str, default='facescrub', help='which dataset for training (one of facescrub, youtube, CFW, and VGGFace2)')
 parser.add_argument('--num', nargs='+', type=int, help='num. of codebooks, could be 4, 8...')
 parser.add_argument('--words', nargs='+', type=int, default=[256, 256, 256, 256], help='num of words, should be exponential of 2')
-parser.add_argument('--margin', default=0.5, type=float, help='margin of cosine similarity')
+# parser.add_argument('--margin', default=0.5, type=float, help='margin of cosine similarity')
+parser.add_argument('--margin', default=0.4, type=float, help='margin of cosine similarity')
 parser.add_argument('--miu', default=0.1, type=float, help='Balance weight of redundancy loss')
 
 try:
@@ -83,7 +84,8 @@ def train(save_path, length, num, words, feature_dim):
         metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=40, m=args.margin)
     else:  # for small input size dataset
         net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
-        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=20, m=args.margin)
+        # metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=20, m=args.margin)
+        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, code_books=code_books, num_words=words, sc=40, m=args.margin)
 
     num_books = metric.num_books
     len_word = metric.len_word
