@@ -126,8 +126,8 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-0210-3", c
     testset = datasets.ImageFolder(root=test_path, transform=to_tensor)
     print(f"Train path: {train_path}")  # Debug
     print(f"Test path: {test_path}")    # Debug
-    print(f"Train classes: {trainset.classes}")  # Debug: Print number of identities
-    print(f"Test classes: {testset.classes}")    # Debug: Print number of identities
+    #print(f"Train classes: {trainset.classes}")  # Debug: Print number of identities
+    #print(f"Test classes: {testset.classes}")    # Debug: Print number of identities
 
     if cross_eval:
         transform_train = torch.nn.Sequential(
