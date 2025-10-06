@@ -985,8 +985,10 @@ def PqDistRet_Ortho_safe(test_features, test_labels, train_labels, index_table, 
         np.save(f'distances_{bit_length}.npy', distances.cpu().numpy())
         np.save(f'ranks_{bit_length}.npy', ranks.cpu().numpy())
         np.save(f'features_{bit_length}.npy', test_features.cpu().numpy())
-        np.save(f'labels_{bit_length}.npy', test_labels.cpu().numpy())  # Test labels
-        np.save(f'train_labels_{bit_length}.npy', train_labels.cpu().numpy())  # Add train labels
+        np.save(f'labels_{bit_length}.npy', test_labels.cpu().numpy())
+        np.save(f'train_labels_{bit_length}.npy', train_labels.cpu().numpy())
+        np.save(f'index_table_{bit_length}.npy', index.cpu().numpy())  # Thêm index_table
+        np.save(f'mlp_{bit_length}.npy', mlp.cpu().numpy())  # Thêm mlp
 
     print('[Evaluate Phase] MAP: %.2f%% top_k: %.2f%%' % (100. * float(mAP), 100. * float(top_mAP)))
 
