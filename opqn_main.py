@@ -9,7 +9,7 @@ import argparse
 import sys
 import time
 import os
-from utils import Logger, AverageMeter, compute_quant, compute_quant_indexing, PqDistRet_Ortho
+from utils import Logger, AverageMeter, compute_quant, compute_quant_indexing, PqDistRet_Ortho, PqDistRet_Ortho_safe
 from backbone import resnet20_pq, SphereNet20_pq
 from margin_metric import OrthoPQ
 from data_loader import get_datasets_transform
@@ -221,9 +221,13 @@ def test(load_path, length, num, words, feature_dim):
         start = datetime.now()
         query_features, test_labels = compute_quant(transform_test, test_loader, net, device)
         if args.dataset != "vggface2":
-            mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5)
+            # mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5)
+            # Sử dụng safe
+            mAP, top_k, distances, ranks, features = PqDistRet_Ortho_safe(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5, bit_length=args.len[i])
         else:
-            mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=10)
+            # mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=10)
+            # Sử dụng safe
+            mAP, top_k, distances, ranks, features = PqDistRet_Ortho_safe(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5, bit_length=args.len[i])
 
         time_elapsed = datetime.now() - start
         print("Query completed in %d ms" % int(time_elapsed.total_seconds() * 1000))
