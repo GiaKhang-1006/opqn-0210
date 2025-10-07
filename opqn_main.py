@@ -30,6 +30,8 @@ parser.add_argument('--margin', default=0.4, type=float, help='margin of cosine 
 parser.add_argument('--miu', default=0.1, type=float, help='Balance weight of redundancy loss')
 # Thêm việc thay đổi backbone
 parser.add_argument('--backbone', type=str, default='resnet', choices=['resnet', 'edgeface'], help='Backbone type: resnet or edgeface')
+parser.add_argument('--data_dir', type=str, default='/kaggle/input/facescrub-0210-3', help='Data direction on kaggle for multiple dataset')
+
 
 try:
     args = parser.parse_args()
@@ -40,8 +42,8 @@ except Exception as e:
 # trainset, testset = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['dataset']
 # transform_train, transform_test = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['transform']
 # Khi gọi get_datasets_transform (thay 2 dòng gọi)
-trainset, testset = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset, backbone=args.backbone)['dataset']
-transform_train, transform_test = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset, backbone=args.backbone)['transform']
+trainset, testset = get_datasets_transform(args.dataset, args.data_dir, cross_eval=args.cross_dataset, backbone=args.backbone)['dataset']
+transform_train, transform_test = get_datasets_transform(args.dataset, args.data_dir, cross_eval=args.cross_dataset, backbone=args.backbone)['transform']
 
 train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=True, pin_memory=True, num_workers=4)
 test_loader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, pin_memory=True, num_workers=4)
@@ -408,7 +410,7 @@ def train(save_path, length, num, words, feature_dim):
     print("Training Completed in {:.0f}min {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
     print("Best mAP {:.4f} at epoch {}".format(best_mAP, best_epoch))
     print("Model saved as %s" % save_path)
-    
+
 def test(load_path, length, num, words, feature_dim):
     len_bit = int(num * math.log(words, 2))
     assert length == len_bit, "something went wrong with code length"
