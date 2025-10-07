@@ -176,120 +176,7 @@ class adjust_lr:
 #     print("Best mAP {:.4f} at epoch {}".format(best_mAP, best_epoch))
 #     print("Model saved as %s" % save_path)
 
-#Chỉnh train lần 1
-# def train(save_path, length, num, words, feature_dim):
-#     best_acc = 0
-#     best_mAP = 0
-#     best_epoch = 1
-#     print('==> Building model..')
-#     num_classes = len(trainset.classes)
-#     print("number of identities: ", num_classes)
-#     print("number of training images: ", len(trainset))
-#     print("number of test images: ", len(testset))
-#     print("number of training batches per epoch:", len(train_loader))
-#     print("number of testing batches per epoch:", len(test_loader))
 
-#     d = int(feature_dim / num)
-#     matrix = torch.randn(d, d)
-#     for k in range(d):
-#         for j in range(d):
-#             matrix[j, k] = math.cos((j+0.5)*k*math.pi/d)
-#     matrix[:, 0] /= math.sqrt(2)
-#     matrix /= math.sqrt(d/2)
-#     code_books = torch.Tensor(num, d, words)
-#     code_books[0] = matrix[:, :words]
-#     for i in range(1, num):
-#         code_books[i] = matrix @ code_books[i-1]
-
-#     # Conditional khởi tạo net dựa trên backbone
-#     if args.cross_dataset or args.dataset == "vggface2":
-#         if args.backbone == 'edgeface':
-#             net = EdgeFaceBackbone(feature_dim=feature_dim)
-#         else:
-#             net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
-#         metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=30.0, m=args.margin)
-#     else:
-#         if args.backbone == 'edgeface':
-#             net = EdgeFaceBackbone(feature_dim=feature_dim)
-#         else:
-#             net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
-#         metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=30.0, m=args.margin)
-
-#     net = nn.DataParallel(net).to(device)
-#     # Tắt backprop cho θ nếu backbone edgeface
-#     if args.backbone == 'edgeface':
-#         for param in net.module.backbone.parameters():
-#             param.requires_grad = False
-
-#     metric = nn.DataParallel(metric).to(device)
-#     cudnn.benchmark = True
-
-#     if args.dataset in ["facescrub", "cfw", "youtube"]:
-#         optimizer = optim.SGD([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4, momentum=0.9)
-#         scheduler = adjust_lr(35, 0.5)
-#         EPOCHS = 200
-#     else:
-#         scheduler = adjust_lr(20, 0.5)
-#         EPOCHS = 160
-#         optimizer = optim.SGD([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4, momentum=0.9)
-
-#     since = time.time()
-#     best_loss = 1e3
-
-#     for epoch in range(EPOCHS):
-#         print('==> Epoch: %d' % (epoch+1))
-#         net.train()
-#         losses = AverageMeter()
-#         scheduler.adjust(optimizer, epoch)
-#         start = time.time()
-#         for batch_idx, (inputs, targets) in enumerate(train_loader):
-#             inputs, targets = inputs.cuda(), targets.cuda()
-#             transformed_images = transform_train(inputs)
-#             features = net(transformed_images)
-#             output1, output2, xc_probs = metric(features, targets)
-#             # Subspacewise joint clf. loss
-#             loss_clf1 = [criterion(output1[:, i, :], targets) for i in range(num_books)]  # logits from original features
-#             loss_clf2 = [criterion(output2[:, i, :], targets) for i in range(num_books)]  # logits from soft quantized features
-#             loss_clf = 0.5 * (sum(loss_clf1) / len(loss_clf1) + sum(loss_clf2) / len(loss_clf2))
-
-#             # Entropy minimization
-#             xc_entropy = [Distributions.categorical.Categorical(probs=xc_probs[:, i, :]).entropy().sum() for i in range(num_books)]  # -p * logP
-#             loss_entropy = sum(xc_entropy) / (num_books * len(inputs))
-#             loss = loss_clf + args.miu * loss_entropy
-#             optimizer.zero_grad()
-#             loss.backward()
-#             optimizer.step()
-#             losses.update(loss.item(), len(inputs))
-
-#         epoch_elapsed = time.time() - start
-#         print('Epoch %d | Loss: %.4f' % (epoch+1, losses.avg))
-#         print("Epoch Completed in {:.0f}min {:.0f}s".format(epoch_elapsed // 60, epoch_elapsed % 60))
-#         # scheduler.step()  # Khôi phục dòng này (commented trong gốc)
-
-#         if (epoch+1) % 5 == 0:
-#             net.eval()
-#             with torch.no_grad():
-#                 mlp_weight = metric.module.mlp
-#                 index, train_labels = compute_quant_indexing(transform_test, train_loader, net, len_word, mlp_weight, device)
-#                 queries, test_labels = compute_quant(transform_test, test_loader, net, device)
-#                 start = time.time()
-#                 mAP, top_k = PqDistRet_Ortho(queries, test_labels, train_labels, index, mlp_weight, len_word, num_books, device, top=50)
-#                 time_elapsed = time.time() - start
-#                 print("Code generated in {:.0f}min {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
-#                 print('[Evaluate Phase] MAP: %.2f%% top_k: %.2f%%' % (100. * float(mAP), 100. * float(top_k)))
-
-#             if losses.avg < best_loss:
-#                 best_loss = losses.avg
-#                 # best_mAP = mAP  # Khôi phục dòng này (commented trong gốc)
-#                 print('Saving..')
-#                 checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
-#                 os.makedirs(checkpoint_dir, exist_ok=True)
-#                 torch.save({'backbone': net.state_dict(), 'mlp': metric.module.mlp}, os.path.join(checkpoint_dir, save_path))
-#                 best_epoch = epoch + 1
-#     time_elapsed = time.time() - since
-#     print("Training Completed in {:.0f}min {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
-#     print("Best mAP {:.4f} at epoch {}".format(best_mAP, best_epoch))
-#     print("Model saved as %s" % save_path)
 
 def train(save_path, length, num, words, feature_dim):
     best_acc = 0
@@ -340,6 +227,9 @@ def train(save_path, length, num, words, feature_dim):
 
     # Định nghĩa criterion
     criterion = nn.CrossEntropyLoss()
+    num_books = metric.num_books
+    len_word = metric.len_word
+    num_words = metric.num_words
 
     if args.dataset in ["facescrub", "cfw", "youtube"]:
         optimizer_params = [{'params': metric.parameters(), 'lr': args.lr}]
