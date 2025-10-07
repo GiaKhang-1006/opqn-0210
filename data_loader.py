@@ -8,50 +8,57 @@ import numpy as np
 import torch.nn as nn
 import torchvision.transforms.functional as TF
 
-detector = dlib.get_frontal_face_detector()  # Global dlib detector cho align
+detector = dlib.get_frontal_face_detector()  # Global dlib detector for align
 
-def get_datasets_transform(dataset, data_dir="./data", cross_eval=False, backbone='resnet'):
+def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-0210-3", cross_eval=False, backbone='resnet'):
     to_tensor = transforms.ToTensor()
 
-    # Auto detect Kaggle and use /kaggle/input/ processed paths
+    # Auto detect Kaggle and use specific paths
     if 'kaggle' in os.environ.get('PWD', ''):
         if dataset == 'facescrub':
-            base_path = '/kaggle/input/processed-facescrub/'  # Thay bằng tên dataset bạn upload
+            base_path = os.path.join(data_dir, 'facescrub')  # e.g., /kaggle/input/facescrub-0210-3/facescrub
         else:
-            base_path = data_dir  # Fallback cho dataset khác
+            base_path = data_dir  # Fallback for other datasets
     else:
-        base_path = data_dir  # Cục bộ
+        base_path = data_dir  # Local environment
 
     # Define paths with folder existence check
-    if dataset != "vggface2":
-        train_path = os.path.join(base_path, "train")  # Thay vì dataset/train
-        test_path = os.path.join(base_path, "test")    # Thay vì dataset/test
+    if dataset == 'facescrub':
+        train_path = os.path.join(base_path, 'train', 'actors')
+        test_path = os.path.join(base_path, 'test', 'actors')
         if not os.path.exists(train_path):
-            train_path = os.path.join(base_path)  # Fallback nếu không có split
+            train_path = os.path.join(base_path, 'train')  # Fallback
         if not os.path.exists(test_path):
-            test_path = train_path  # Fallback
-    else:
-        if cross_eval:  # vggface2 cross-dataset
-            train_path = os.path.join(base_path, "cross_train") if os.path.exists(os.path.join(base_path, "cross_train")) else os.path.join(base_path, "train")
-            test_path = os.path.join(base_path, "cross_test") if os.path.exists(os.path.join(base_path, "cross_test")) else os.path.join(base_path, "test")
+            test_path = os.path.join(base_path, 'test')  # Fallback
+    elif dataset == 'vggface2':
+        if cross_eval:
+            train_path = os.path.join(base_path, 'cross_train') if os.path.exists(os.path.join(base_path, 'cross_train')) else os.path.join(base_path, 'train')
+            test_path = os.path.join(base_path, 'cross_test') if os.path.exists(os.path.join(base_path, 'cross_test')) else os.path.join(base_path, 'test')
         else:
-            train_path = os.path.join(base_path, "train")
-            test_path = os.path.join(base_path, "test")
+            train_path = os.path.join(base_path, 'train')
+            test_path = os.path.join(base_path, 'test')
+    else:
+        train_path = os.path.join(base_path, 'train')
+        test_path = os.path.join(base_path, 'test')
+        if not os.path.exists(train_path):
+            train_path = base_path  # Fallback
+        if not os.path.exists(test_path):
+            test_path = base_path  # Fallback
 
     # Debug print
-    print(f"Dataset: {dataset}, Cross-eval: {cross_eval}")
+    print(f"Dataset: {dataset}, Cross-eval: {cross_eval}, Backbone: {backbone}")
     print(f"Train path: {train_path}, Test path: {test_path}")
 
     trainset = datasets.ImageFolder(root=train_path, transform=to_tensor)
     testset = datasets.ImageFolder(root=test_path, transform=to_tensor)
 
-    # Hàm align dùng dlib (chỉ dùng nếu backbone=='edgeface')
+    # Hàm align dùng dlib (chỉ dùng nếu backbone=='edgeface' và dataset chưa pre-aligned)
     def align_face(img):  # img là PIL Image
         try:
             img_cv = np.array(img)[:,:,::-1]  # PIL RGB -> OpenCV BGR
             faces = detector(img_cv, 1)
             if not faces:
-                return TF.to_tensor(img_cv[:,:,::-1])  # Fallback nếu no face
+                return TF.to_tensor(img_cv[:,:,::-1])  # Fallback if no face
             main_face = max(faces, key=lambda f: f.width() * f.height())
             x, y, w, h = main_face.left(), main_face.top(), main_face.width(), main_face.height()
             margin = int(w * 0.35)
@@ -63,10 +70,12 @@ def get_datasets_transform(dataset, data_dir="./data", cross_eval=False, backbon
             print(f"Align error: {e}")
             return TF.to_tensor(img)  # Fallback
 
-    # Align lambda (chỉ apply nếu edgeface, else identity)
-    align_transform = transforms.Lambda(align_face) if backbone == 'edgeface' else nn.Identity()
+    # Align only for EdgeFace if dataset not pre-aligned (FaceScrub is pre-aligned 112x112)
+    align_transform = nn.Identity()  # Skip align since dataset is pre-aligned
+    # Uncomment below if you want to enable alignment for EdgeFace
+    # align_transform = transforms.Lambda(align_face) if backbone == 'edgeface' else nn.Identity()
 
-    # Normalize conditional
+    # Normalize and resize conditional
     if backbone == 'edgeface':
         norm_mean = (0.5, 0.5, 0.5)
         norm_std = (0.5, 0.5, 0.5)
@@ -129,7 +138,6 @@ def get_datasets_transform(dataset, data_dir="./data", cross_eval=False, backbon
             )
 
     return {"dataset": [trainset, testset], "transform": [transform_train, transform_test]}
-
 
 
 
