@@ -28,6 +28,8 @@ parser.add_argument('--words', nargs='+', type=int, default=[256, 256, 256, 256]
 # parser.add_argument('--margin', default=0.5, type=float, help='margin of cosine similarity')
 parser.add_argument('--margin', default=0.4, type=float, help='margin of cosine similarity')
 parser.add_argument('--miu', default=0.1, type=float, help='Balance weight of redundancy loss')
+# Thêm việc thay đổi backbone
+parser.add_argument('--backbone', type=str, default='resnet', choices=['resnet', 'edgeface'], help='Backbone type: resnet or edgeface')
 
 try:
     args = parser.parse_args()
@@ -35,8 +37,11 @@ except Exception as e:
     print(f"Parser error: {e}")
     sys.exit(1)
 
-trainset, testset = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['dataset']
-transform_train, transform_test = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['transform']
+# trainset, testset = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['dataset']
+# transform_train, transform_test = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset)['transform']
+# Khi gọi get_datasets_transform (thay 2 dòng gọi)
+trainset, testset = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset, backbone=args.backbone)['dataset']
+transform_train, transform_test = get_datasets_transform(args.dataset, cross_eval=args.cross_dataset, backbone=args.backbone)['transform']
 
 train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=True, pin_memory=True, num_workers=4)
 test_loader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, pin_memory=True, num_workers=4)
