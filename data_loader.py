@@ -1,3 +1,219 @@
+import torch
+import torchvision.transforms as transforms
+from torchvision import datasets
+import os
+import cv2
+import dlib
+import numpy as np
+import torch.nn as nn
+import torchvision.transforms.functional as TF
+
+detector = dlib.get_frontal_face_detector()  # Global dlib detector cho align
+
+def get_datasets_transform(dataset, data_dir="./data", cross_eval=False, backbone='resnet'):
+    to_tensor = transforms.ToTensor()
+
+    # Auto detect Kaggle and use /kaggle/input/ processed paths
+    if 'kaggle' in os.environ.get('PWD', ''):
+        if dataset == 'facescrub':
+            base_path = '/kaggle/input/processed-facescrub/'  # Thay bằng tên dataset bạn upload
+        else:
+            base_path = data_dir  # Fallback cho dataset khác
+    else:
+        base_path = data_dir  # Cục bộ
+
+    # Define paths with folder existence check
+    if dataset != "vggface2":
+        train_path = os.path.join(base_path, "train")  # Thay vì dataset/train
+        test_path = os.path.join(base_path, "test")    # Thay vì dataset/test
+        if not os.path.exists(train_path):
+            train_path = os.path.join(base_path)  # Fallback nếu không có split
+        if not os.path.exists(test_path):
+            test_path = train_path  # Fallback
+    else:
+        if cross_eval:  # vggface2 cross-dataset
+            train_path = os.path.join(base_path, "cross_train") if os.path.exists(os.path.join(base_path, "cross_train")) else os.path.join(base_path, "train")
+            test_path = os.path.join(base_path, "cross_test") if os.path.exists(os.path.join(base_path, "cross_test")) else os.path.join(base_path, "test")
+        else:
+            train_path = os.path.join(base_path, "train")
+            test_path = os.path.join(base_path, "test")
+
+    # Debug print
+    print(f"Dataset: {dataset}, Cross-eval: {cross_eval}")
+    print(f"Train path: {train_path}, Test path: {test_path}")
+
+    trainset = datasets.ImageFolder(root=train_path, transform=to_tensor)
+    testset = datasets.ImageFolder(root=test_path, transform=to_tensor)
+
+    # Hàm align dùng dlib (chỉ dùng nếu backbone=='edgeface')
+    def align_face(img):  # img là PIL Image
+        try:
+            img_cv = np.array(img)[:,:,::-1]  # PIL RGB -> OpenCV BGR
+            faces = detector(img_cv, 1)
+            if not faces:
+                return TF.to_tensor(img_cv[:,:,::-1])  # Fallback nếu no face
+            main_face = max(faces, key=lambda f: f.width() * f.height())
+            x, y, w, h = main_face.left(), main_face.top(), main_face.width(), main_face.height()
+            margin = int(w * 0.35)
+            x1, y1 = max(0, x - margin), max(0, y - margin)
+            x2, y2 = min(img_cv.shape[1], x + w + margin), min(img_cv.shape[0], y + h + margin)
+            crop = img_cv[y1:y2, x1:x2]
+            return TF.to_tensor(crop[:,:,::-1])  # BGR -> RGB tensor
+        except Exception as e:
+            print(f"Align error: {e}")
+            return TF.to_tensor(img)  # Fallback
+
+    # Align lambda (chỉ apply nếu edgeface, else identity)
+    align_transform = transforms.Lambda(align_face) if backbone == 'edgeface' else nn.Identity()
+
+    # Normalize conditional
+    if backbone == 'edgeface':
+        norm_mean = (0.5, 0.5, 0.5)
+        norm_std = (0.5, 0.5, 0.5)
+        resize_crop_size = 120
+        crop_size = 112
+    else:  # resnet (gốc OPQN)
+        if dataset == "vggface2" or cross_eval:
+            norm_mean = (0.5, 0.5, 0.5)
+            norm_std = (0.5, 0.5, 0.5)
+            resize_crop_size = 120
+            crop_size = 112
+        else:  # facescrub
+            norm_mean = [0.639, 0.479, 0.404]
+            norm_std = [0.216, 0.183, 0.171]
+            resize_crop_size = 35
+            crop_size = 32
+
+    # Transforms
+    if cross_eval:
+        transform_train = nn.Sequential(
+            align_transform,
+            transforms.Resize(resize_crop_size),
+            transforms.CenterCrop(crop_size),
+            transforms.ConvertImageDtype(torch.float),
+            transforms.Normalize(norm_mean, norm_std),
+        )
+        transform_test = transform_train
+    else:
+        if dataset == "vggface2":
+            transform_train = nn.Sequential(
+                align_transform,
+                transforms.Resize(resize_crop_size),
+                transforms.RandomCrop(crop_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ConvertImageDtype(torch.float),
+                transforms.Normalize(norm_mean, norm_std),
+            )
+            transform_test = nn.Sequential(
+                align_transform,
+                transforms.Resize(resize_crop_size),
+                transforms.CenterCrop(crop_size),
+                transforms.ConvertImageDtype(torch.float),
+                transforms.Normalize(norm_mean, norm_std),
+            )
+        else:
+            transform_train = nn.Sequential(
+                align_transform,
+                transforms.Resize(resize_crop_size),
+                transforms.RandomCrop(crop_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ConvertImageDtype(torch.float),
+                transforms.Normalize(norm_mean, norm_std),
+            )
+            transform_test = nn.Sequential(
+                align_transform,
+                transforms.Resize(resize_crop_size),
+                transforms.CenterCrop(crop_size),
+                transforms.ConvertImageDtype(torch.float),
+                transforms.Normalize(norm_mean, norm_std),
+            )
+
+    return {"dataset": [trainset, testset], "transform": [transform_train, transform_test]}
+
+
+
+
+
+
+
+
+
+# import torch
+# import torchvision.transforms as transforms
+# from torchvision import datasets
+# import os
+
+# def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-0210-3", cross_eval=False):
+#     to_tensor = transforms.ToTensor()
+
+#     # Define paths for FaceScrub processed data
+#     if dataset == "facescrub":
+#         train_path = os.path.join(data_dir, "facescrub", "train", "actors")
+#         test_path = os.path.join(data_dir, "facescrub", "test", "actors")
+#     elif dataset == "vggface2":
+#         if cross_eval:
+#             train_path = os.path.join(data_dir, "vggface2", "cross_train")
+#             test_path = os.path.join(data_dir, "vggface2", "cross_test")
+#         else:
+#             train_path = os.path.join(data_dir, "vggface2", "train")
+#             test_path = os.path.join(data_dir, "vggface2", "test")
+#     else:
+#         train_path = os.path.join(data_dir, dataset, "train")
+#         test_path = os.path.join(data_dir, dataset, "test")
+
+#     # Load datasets with debug print
+#     trainset = datasets.ImageFolder(root=train_path, transform=to_tensor)
+#     testset = datasets.ImageFolder(root=test_path, transform=to_tensor)
+#     print(f"Train path: {train_path}")  # Debug
+#     print(f"Test path: {test_path}")    # Debug
+#     #print(f"Train classes: {trainset.classes}")  # Debug: Print number of identities
+#     #print(f"Test classes: {testset.classes}")    # Debug: Print number of identities
+
+#     if cross_eval:
+#         transform_train = torch.nn.Sequential(
+#             transforms.Resize(120),
+#             transforms.CenterCrop(112),
+#             transforms.ConvertImageDtype(torch.float),
+#             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+#         )
+#         transform_test = transform_train
+#     else:
+#         if dataset == "vggface2":
+#             transform_train = torch.nn.Sequential(
+#                 transforms.Resize(120),
+#                 transforms.RandomCrop(112),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ConvertImageDtype(torch.float),
+#                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+#             )
+#             transform_test = torch.nn.Sequential(
+#                 transforms.Resize(120),
+#                 transforms.CenterCrop(112),
+#                 transforms.ConvertImageDtype(torch.float),
+#                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+#             )
+#         else:
+#             transform_train = torch.nn.Sequential(
+#                 transforms.Resize(35),
+#                 transforms.RandomCrop(32),
+#                 transforms.RandomHorizontalFlip(),
+#                 transforms.ConvertImageDtype(torch.float),
+#                 transforms.Normalize([0.639, 0.479, 0.404], [0.216, 0.183, 0.171])
+#             )
+#             transform_test = torch.nn.Sequential(
+#                 transforms.Resize(35),
+#                 transforms.CenterCrop(32),
+#                 transforms.ConvertImageDtype(torch.float),
+#                 transforms.Normalize([0.639, 0.479, 0.404], [0.216, 0.183, 0.171])
+#             )
+
+#     return {"dataset": [trainset, testset], "transform": [transform_train, transform_test]}
+
+
+
+
+
+
 # import torch
 # import torchvision.transforms as transforms
 # from torchvision import datasets
@@ -87,90 +303,6 @@
 #     testset.transform = transform_test
 
 #     return {"dataset": [trainset, testset], "transform": [transform_train, transform_test]}
-
-
-
-
-
-
-
-
-
-
-
-import torch
-import torchvision.transforms as transforms
-from torchvision import datasets
-import os
-
-def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-0210-3", cross_eval=False):
-    to_tensor = transforms.ToTensor()
-
-    # Define paths for FaceScrub processed data
-    if dataset == "facescrub":
-        train_path = os.path.join(data_dir, "facescrub", "train", "actors")
-        test_path = os.path.join(data_dir, "facescrub", "test", "actors")
-    elif dataset == "vggface2":
-        if cross_eval:
-            train_path = os.path.join(data_dir, "vggface2", "cross_train")
-            test_path = os.path.join(data_dir, "vggface2", "cross_test")
-        else:
-            train_path = os.path.join(data_dir, "vggface2", "train")
-            test_path = os.path.join(data_dir, "vggface2", "test")
-    else:
-        train_path = os.path.join(data_dir, dataset, "train")
-        test_path = os.path.join(data_dir, dataset, "test")
-
-    # Load datasets with debug print
-    trainset = datasets.ImageFolder(root=train_path, transform=to_tensor)
-    testset = datasets.ImageFolder(root=test_path, transform=to_tensor)
-    print(f"Train path: {train_path}")  # Debug
-    print(f"Test path: {test_path}")    # Debug
-    #print(f"Train classes: {trainset.classes}")  # Debug: Print number of identities
-    #print(f"Test classes: {testset.classes}")    # Debug: Print number of identities
-
-    if cross_eval:
-        transform_train = torch.nn.Sequential(
-            transforms.Resize(120),
-            transforms.CenterCrop(112),
-            transforms.ConvertImageDtype(torch.float),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        )
-        transform_test = transform_train
-    else:
-        if dataset == "vggface2":
-            transform_train = torch.nn.Sequential(
-                transforms.Resize(120),
-                transforms.RandomCrop(112),
-                transforms.RandomHorizontalFlip(),
-                transforms.ConvertImageDtype(torch.float),
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-            )
-            transform_test = torch.nn.Sequential(
-                transforms.Resize(120),
-                transforms.CenterCrop(112),
-                transforms.ConvertImageDtype(torch.float),
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-            )
-        else:
-            transform_train = torch.nn.Sequential(
-                transforms.Resize(35),
-                transforms.RandomCrop(32),
-                transforms.RandomHorizontalFlip(),
-                transforms.ConvertImageDtype(torch.float),
-                transforms.Normalize([0.639, 0.479, 0.404], [0.216, 0.183, 0.171])
-            )
-            transform_test = torch.nn.Sequential(
-                transforms.Resize(35),
-                transforms.CenterCrop(32),
-                transforms.ConvertImageDtype(torch.float),
-                transforms.Normalize([0.639, 0.479, 0.404], [0.216, 0.183, 0.171])
-            )
-
-    return {"dataset": [trainset, testset], "transform": [transform_train, transform_test]}
-
-
-
 
 
 
