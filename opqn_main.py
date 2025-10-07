@@ -227,10 +227,12 @@ def train(save_path, length, num, words, feature_dim):
 
     # Định nghĩa criterion
     criterion = nn.CrossEntropyLoss()
-    num_books = metric.num_books
-    len_word = metric.len_word
-    num_words = metric.num_words
-
+    num_books = num  # metric.module.num_books
+    num_words = words  # metric.module.num_words
+    len_word = int(feature_dim / num_books)  # metric.module.len_word
+    len_bit = int(num_books * math.log(num_words, 2))
+    assert length == len_bit, f"Code length mismatch: expected {length}-bit, got {len_bit}-bit"
+    
     if args.dataset in ["facescrub", "cfw", "youtube"]:
         optimizer_params = [{'params': metric.parameters(), 'lr': args.lr}]
         if args.backbone != 'edgeface' or any(p.requires_grad for p in net.parameters()):
