@@ -338,6 +338,9 @@ def train(save_path, length, num, words, feature_dim):
     metric = nn.DataParallel(metric).to(device)
     cudnn.benchmark = True
 
+    # Định nghĩa criterion
+    criterion = nn.CrossEntropyLoss()
+
     if args.dataset in ["facescrub", "cfw", "youtube"]:
         optimizer_params = [{'params': metric.parameters(), 'lr': args.lr}]
         if args.backbone != 'edgeface' or any(p.requires_grad for p in net.parameters()):
