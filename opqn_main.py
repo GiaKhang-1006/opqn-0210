@@ -387,7 +387,7 @@ def train(save_path, length, num, words, feature_dim):
         epoch_elapsed = time.time() - start
         print('Epoch %d | Loss: %.4f' % (epoch+1, losses.avg))
         print("Epoch Completed in {:.0f}min {:.0f}s".format(epoch_elapsed // 60, epoch_elapsed % 60))
-        scheduler.step()  # Khôi phục scheduler
+        #scheduler.step()  # Khôi phục scheduler
 
         if (epoch+1) % 5 == 0:
             net.eval()
