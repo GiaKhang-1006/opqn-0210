@@ -191,35 +191,72 @@ def train(save_path, length, num, words, feature_dim):
     print("Best mAP {:.4f} at epoch {}".format(best_mAP, best_epoch))
     print("Model saved as %s" % save_path)
 
-def test(load_path, length, num, words, feature_dim):
-    len_bit = int(num * math.log(words, 2))
-    assert length == len_bit, "something went wrong with code length"
-    # top_list = torch.linspace(20, 300, 15).int().tolist()  # Khôi phục dòng này (commented trong gốc)
+# def test(load_path, length, num, words, feature_dim):
+#     len_bit = int(num * math.log(words, 2))
+#     assert length == len_bit, "something went wrong with code length"
+#     # top_list = torch.linspace(20, 300, 15).int().tolist()  # Khôi phục dòng này (commented trong gốc)
 
-    d = int(feature_dim / num)
-    matrix = torch.randn(d, d)
-    for k in range(d):
-        for j in range(d):
-            matrix[j, k] = math.cos((j+0.5)*k*math.pi/d)
-    matrix[:, 0] /= math.sqrt(2)    # divided by sqrt(2)
-    matrix /= math.sqrt(d/2)    # divided by sqrt(N/2)
-    code_books = torch.Tensor(num, d, words)
-    code_books[0] = matrix[:, :words]
-    for i in range(1, num):
-        code_books[i] = matrix @ code_books[i-1]
+#     d = int(feature_dim / num)
+#     matrix = torch.randn(d, d)
+#     for k in range(d):
+#         for j in range(d):
+#             matrix[j, k] = math.cos((j+0.5)*k*math.pi/d)
+#     matrix[:, 0] /= math.sqrt(2)    # divided by sqrt(2)
+#     matrix /= math.sqrt(d/2)    # divided by sqrt(N/2)
+#     code_books = torch.Tensor(num, d, words)
+#     code_books[0] = matrix[:, :words]
+#     for i in range(1, num):
+#         code_books[i] = matrix @ code_books[i-1]
 
+#     print("===============evaluation on model %s===============" % load_path)
+
+#     if args.cross_dataset:
+#         net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+#     else:
+#         if args.dataset in ["facescrub", "cfw", "youtube"]:
+#             net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
+#         else:
+#             net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+
+#     train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=False, num_workers=4)
+#     test_loader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=4)
+#     num_classes = len(trainset.classes)
+#     num_classes_test = len(testset.classes)
+#     print("number of train identities: ", num_classes)
+#     print("number of test identities: ", num_classes_test)
+#     print("number of training images: ", len(trainset))
+#     print("number of test images: ", len(testset))
+#     print("number of training batches per epoch:", len(train_loader))
+#     print("number of testing batches per epoch:", len(test_loader))
+
+#     device = "cuda:0" if torch.cuda.is_available() else "cpu"
+#     net = nn.DataParallel(net).to(device)
+
+#     checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+#     checkpoint = torch.load(os.path.join(checkpoint_dir, load_path))
+#     net.load_state_dict(checkpoint['backbone'])
+#     mlp_weight = checkpoint['mlp']
+#     len_word = int(feature_dim / num)
+#     net.eval()
+#     with torch.no_grad():
+#         index, train_labels = compute_quant_indexing(transform_test, train_loader, net, len_word, mlp_weight, device)
+#         start = datetime.now()
+#         query_features, test_labels = compute_quant(transform_test, test_loader, net, device)
+#         if args.dataset != "vggface2":
+#             # mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5)
+#             # Sử dụng safe
+#             mAP, top_k, distances, ranks, features = PqDistRet_Ortho_safe(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5, bit_length=length)
+#         else:
+#             # mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=10)
+#             # Sử dụng safe
+#             mAP, top_k, distances, ranks, features = PqDistRet_Ortho_safe(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5, bit_length=length)
+
+#         time_elapsed = datetime.now() - start
+#         print("Query completed in %d ms" % int(time_elapsed.total_seconds() * 1000))
+#         print('[Evaluate Phase] MAP: %.2f%% top_k: %.2f%%' % (100. * float(mAP), 100. * float(top_k)))
+
+def test(load_path, length, num, words, feature_dim=512):
     print("===============evaluation on model %s===============" % load_path)
-
-    if args.cross_dataset:
-        net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
-    else:
-        if args.dataset in ["facescrub", "cfw", "youtube"]:
-            net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
-        else:
-            net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
-
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.bs, shuffle=False, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=False, num_workers=4)
     num_classes = len(trainset.classes)
     num_classes_test = len(testset.classes)
     print("number of train identities: ", num_classes)
@@ -229,11 +266,30 @@ def test(load_path, length, num, words, feature_dim):
     print("number of training batches per epoch:", len(train_loader))
     print("number of testing batches per epoch:", len(test_loader))
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    # Conditional khởi tạo net dựa trên backbone (giống train())
+    if args.cross_dataset:
+        if args.backbone == 'edgeface':
+            net = EdgeFaceBackbone(feature_dim=feature_dim)
+        else:
+            net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+    else:
+        if args.dataset in ["facescrub", "cfw", "youtube"]:
+            if args.backbone == 'edgeface':
+                net = EdgeFaceBackbone(feature_dim=feature_dim)
+            else:
+                net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
+        else:
+            if args.backbone == 'edgeface':
+                net = EdgeFaceBackbone(feature_dim=feature_dim)
+            else:
+                net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+
     net = nn.DataParallel(net).to(device)
 
+    # Sửa path checkpoint cho Kaggle
     checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
-    checkpoint = torch.load(os.path.join(checkpoint_dir, load_path))
+    checkpoint_path = os.path.join(checkpoint_dir, load_path)
+    checkpoint = torch.load(checkpoint_path)
     net.load_state_dict(checkpoint['backbone'])
     mlp_weight = checkpoint['mlp']
     len_word = int(feature_dim / num)
@@ -243,13 +299,9 @@ def test(load_path, length, num, words, feature_dim):
         start = datetime.now()
         query_features, test_labels = compute_quant(transform_test, test_loader, net, device)
         if args.dataset != "vggface2":
-            # mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5)
-            # Sử dụng safe
-            mAP, top_k, distances, ranks, features = PqDistRet_Ortho_safe(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5, bit_length=length)
+            mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5)
         else:
-            # mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=10)
-            # Sử dụng safe
-            mAP, top_k, distances, ranks, features = PqDistRet_Ortho_safe(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=5, bit_length=length)
+            mAP, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=10)
 
         time_elapsed = datetime.now() - start
         print("Query completed in %d ms" % int(time_elapsed.total_seconds() * 1000))
