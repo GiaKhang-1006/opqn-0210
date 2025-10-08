@@ -10,7 +10,7 @@ import torchvision.transforms.functional as TF
 
 detector = dlib.get_frontal_face_detector()  # Global dlib detector for align
 
-def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-0210-3", cross_eval=False, backbone='resnet'):
+def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0710-1", cross_eval=False, backbone='resnet'):
     to_tensor = transforms.ToTensor()
 
     # Auto detect Kaggle and use specific paths
