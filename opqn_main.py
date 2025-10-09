@@ -32,6 +32,7 @@ parser.add_argument('--miu', default=0.1, type=float, help='Balance weight of re
 # Thêm việc thay đổi backbone
 parser.add_argument('--backbone', type=str, default='resnet', choices=['resnet', 'edgeface'], help='Backbone type: resnet or edgeface')
 parser.add_argument('--data_dir', type=str, default='/kaggle/input/facescrub-0210-3', help='Data direction on kaggle for multiple dataset')
+parser.add_argument('--sc', default=30, type=float, help='scale s for initialize metric ')
 
 
 try:
@@ -97,13 +98,13 @@ def train(save_path, length, num, words, feature_dim):
             net = EdgeFaceBackbone(feature_dim=feature_dim)
         else:
             net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
-        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=30.0, m=args.margin)
+        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=args.sc, m=args.margin)
     else:
         if args.backbone == 'edgeface':
             net = EdgeFaceBackbone(feature_dim=feature_dim)
         else:
             net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
-        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=30.0, m=args.margin)
+        metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=args.sc, m=args.margin)
 
     net = nn.DataParallel(net).to(device)
     
