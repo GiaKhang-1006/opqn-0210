@@ -302,7 +302,8 @@ class EdgeFaceBackbone(nn.Module):
         self.backbone = get_model(model_name)
         checkpoint_path = f'edgeface_checkpoint/{model_name}.pt'  # Path đến pretrained file
         self.backbone.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
-        self.backbone.eval()  # Pretrained mode
+        # self.backbone.eval()  # Pretrained mode
+        self.backbone.train()
 
         # BatchNorm và Dropout để match resnet20_pq
         self.last_bn = nn.BatchNorm1d(self.feature_dim)
