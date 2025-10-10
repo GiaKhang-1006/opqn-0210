@@ -13,6 +13,8 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR
 from utils import Logger, AverageMeter, compute_quant, compute_quant_indexing, PqDistRet_Ortho, PqDistRet_Ortho_safe
 from backbone import resnet20_pq, SphereNet20_pq, EdgeFaceBackbone
 from margin_metric import OrthoPQ, CosFace  # Thêm CosFace
+from data_loader import get_datasets_transform
+
 
 parser = argparse.ArgumentParser(description='PyTorch Implementation of Orthonormal Product Quantization for Scalable Face Image Retrieval')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
