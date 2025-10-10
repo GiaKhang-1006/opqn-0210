@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -48,65 +49,162 @@ test_loader = torch.utils.data.DataLoader(testset, batch_size=args.bs, shuffle=F
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 torch.cuda.manual_seed_all(1)
 
-def train(args, train_loader, test_loader, transform_test, net, metric, optimizer, epoch, device, len_word=0, num_books=0):
-    net.train()
-    metric.train()
-    losses = AverageMeter()
-    correct = 0
-    total = 0
-    grad_norm_backbone = 0
-    grad_norm_metric = 0
-    num_batches = len(train_loader)
+def train(save_path, length, num, words, feature_dim):
+    best_acc = 0
+    best_mAP = 0
+    best_epoch = 1
+    print('==> Building model..')
+    num_classes = len(trainset.classes)
+    print("number of identities: ", num_classes)
+    print("number of training images: ", len(trainset))
+    print("number of test images: ", len(testset))
+    print("number of training batches per epoch:", len(train_loader))
+    print("number of testing batches per epoch:", len(test_loader))
+
+    if args.cross_dataset or args.dataset == "vggface2":
+        if args.backbone == 'edgeface':
+            net = EdgeFaceBackbone(feature_dim=feature_dim)
+        else:
+            net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+    else:
+        if args.backbone == 'edgeface':
+            net = EdgeFaceBackbone(feature_dim=feature_dim)
+        else:
+            net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
+
+    net = nn.DataParallel(net).to(device)
+    cudnn.benchmark = True
 
     if args.pretrain_cosface:
+        print("Pre-training with CosFace loss...")
+        metric = CosFace(in_features=feature_dim, out_features=num_classes, s=64.0, m=0.35)
+        metric = nn.DataParallel(metric).to(device)
         criterion = nn.CrossEntropyLoss()
-        for batch_idx, (inputs, targets) in enumerate(train_loader):
-            inputs, targets = inputs.to(device), targets.to(device)
-            transformed_images = transform_train(inputs)
-            features = net(transformed_images)
-            outputs = metric(features, targets)
-            loss = criterion(outputs, targets)
-            optimizer.zero_grad()
-            loss.backward()
-            grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
-            grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
-            optimizer.step()
-            losses.update(loss.item(), len(inputs))
-            grad_norm_backbone += grad_norm_b
-            grad_norm_metric += grad_norm_m
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-        
-        # In log mỗi epoch
-        avg_loss = losses.avg
-        avg_grad_norm_backbone = grad_norm_backbone / num_batches
-        avg_grad_norm_metric = grad_norm_metric / num_batches
-        accuracy = 100. * correct / total
-        print(f'Epoch: {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%')
+        optimizer = optim.AdamW([
+            {'params': net.parameters(), 'lr': args.lr * 0.1},  # Backbone: lr=0.0001
+            {'params': metric.parameters(), 'lr': args.lr * 10}  # CosFace head: lr=0.001
+        ], weight_decay=5e-4)
+        scheduler = CosineAnnealingLR(optimizer, T_max=50)
+        checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
-        # Đánh giá test accuracy mỗi 5 epoch
-        if (epoch + 1) % 5 == 0:
-            net.eval()
-            metric.eval()
-            test_correct = 0
-            test_total = 0
-            with torch.no_grad():
-                for inputs, targets in test_loader:
-                    inputs, targets = inputs.to(device), targets.to(device)
-                    features = net(transform_test(inputs))
-                    outputs = metric(features, targets)
-                    _, predicted = outputs.max(1)
-                    test_total += targets.size(0)
-                    test_correct += predicted.eq(targets).sum().item()
-            test_accuracy = 100. * test_correct / test_total
-            print(f'[Test Phase] Epoch: {epoch+1} | Test Accuracy: {test_accuracy:.2f}%')
-        
-        return avg_loss, accuracy
-    else:
-        criterion = nn.CrossEntropyLoss()
+        for epoch in range(50):
+            net.train()
+            metric.train()
+            losses = AverageMeter()
+            grad_norm_backbone = 0
+            grad_norm_metric = 0
+            correct = 0
+            total = 0
+            start = time.time()
+            for batch_idx, (inputs, targets) in enumerate(train_loader):
+                inputs, targets = inputs.to(device), targets.to(device)
+                transformed_images = transform_train(inputs)
+                features = net(transformed_images)
+                outputs = metric(features, targets)
+                loss = criterion(outputs, targets)
+                optimizer.zero_grad()
+                loss.backward()
+                grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
+                grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
+                optimizer.step()
+                losses.update(loss.item(), len(inputs))
+                grad_norm_backbone += grad_norm_b
+                grad_norm_metric += grad_norm_m
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+
+            # In log trung bình mỗi epoch
+            avg_loss = losses.avg
+            avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
+            avg_grad_norm_metric = grad_norm_metric / len(train_loader)
+            accuracy = 100. * correct / total
+            epoch_elapsed = time.time() - start
+            print(f"Pre-train Epoch {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%")
+
+            # Đánh giá test accuracy mỗi 5 epoch
+            if (epoch + 1) % 5 == 0:
+                net.eval()
+                metric.eval()
+                test_correct = 0
+                test_total = 0
+                with torch.no_grad():
+                    for inputs, targets in test_loader:
+                        inputs, targets = inputs.to(device), targets.to(device)
+                        features = net(transform_test(inputs))
+                        outputs = metric(features, targets)
+                        _, predicted = outputs.max(1)
+                        test_total += targets.size(0)
+                        test_correct += predicted.eq(targets).sum().item()
+                test_accuracy = 100. * test_correct / test_total
+                print(f"[Test Phase] Epoch: {epoch+1} | Test Accuracy: {test_accuracy:.2f}%")
+
+            scheduler.step()
+
+        print("Saving pre-trained model...")
+        torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
+        return
+
+    if args.load:
+        checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+        checkpoint_path = os.path.join(checkpoint_dir, args.load[0])
+        checkpoint = torch.load(checkpoint_path)
+        net.load_state_dict(checkpoint['backbone'])
+        print(f"Loaded pretrained weights from {checkpoint_path}")
+
+    d = int(feature_dim / num)
+    matrix = torch.randn(d, d)
+    for k in range(d):
+        for j in range(d):
+            matrix[j, k] = math.cos((j+0.5)*k*math.pi/d)
+    matrix[:, 0] /= math.sqrt(2)
+    matrix /= math.sqrt(d/2)
+    code_books = torch.Tensor(num, d, words)
+    code_books[0] = matrix[:, :words]
+    for i in range(1, num):
+        code_books[i] = matrix @ code_books[i-1]
+    code_books /= torch.norm(code_books, dim=1, keepdim=True)
+    print("Codebook norms:", [torch.norm(code_books[i], dim=1).mean().item() for i in range(num)])
+
+    metric = OrthoPQ(in_features=feature_dim, out_features=num_classes, num_books=num, num_words=words, code_books=code_books, sc=args.sc, m=args.margin)
+    metric = nn.DataParallel(metric).to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    num_books = num
+    num_words = words
+    len_word = int(feature_dim / num_books)
+    len_bit = int(num_books * math.log(num_words, 2))
+    assert length == len_bit, f"Code length mismatch: expected {length}-bit, got {len_bit}-bit"
+    print("num. of codebooks: ", num_books)
+    print("num. of words per book: ", num_words)
+    print("dim. of word: ", len_word)
+    print("code length: %d-bit \t learning rate: %.3f \t scale length: %d \t penalty margin: %.2f \t balance_weight: %.3f" % 
+          (len_bit, args.lr, metric.module.s, metric.module.m, args.miu))
+
+    optimizer_params = [
+        {'params': metric.parameters(), 'lr': args.lr},
+        {'params': [p for p in net.parameters() if p.requires_grad], 'lr': args.lr * 0.1}
+    ]
+    optimizer = optim.SGD(optimizer_params, weight_decay=1e-3, momentum=0.9)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    EPOCHS = 200 if args.dataset in ["facescrub", "cfw", "youtube"] else 160
+
+    since = time.time()
+    best_loss = 1e3
+
+    for epoch in range(EPOCHS):
+        print('==> Epoch: %d' % (epoch+1))
+        net.train()
+        metric.train()
+        losses = AverageMeter()
         loss_clf_avg = AverageMeter()
         loss_entropy_avg = AverageMeter()
+        grad_norm_backbone = 0
+        grad_norm_metric = 0
+        correct = 0
+        total = 0
+        start = time.time()
         for batch_idx, (inputs, targets) in enumerate(train_loader):
             inputs, targets = inputs.to(device), targets.to(device)
             transformed_images = transform_train(inputs)
@@ -132,17 +230,19 @@ def train(args, train_loader, test_loader, transform_test, net, metric, optimize
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-        # In log mỗi epoch
+        # In log trung bình mỗi epoch
         avg_loss = losses.avg
         avg_loss_clf = loss_clf_avg.avg
         avg_loss_entropy = loss_entropy_avg.avg
-        avg_grad_norm_backbone = grad_norm_backbone / num_batches
-        avg_grad_norm_metric = grad_norm_metric / num_batches
+        avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
+        avg_grad_norm_metric = grad_norm_metric / len(train_loader)
         accuracy = 100. * correct / total
+        epoch_elapsed = time.time() - start
         print(f'Epoch: {epoch+1} | Loss_clf: {avg_loss_clf:.4f} | Loss_entropy: {avg_loss_entropy:.4f} | Total Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%')
+        print("Epoch Completed in {:.0f}min {:.0f}s".format(epoch_elapsed // 60, epoch_elapsed % 60))
+        scheduler.step(avg_loss)
 
-        # Đánh giá mAP mỗi 5 epoch
-        if (epoch + 1) % 5 == 0:
+        if (epoch+1) % 5 == 0:
             net.eval()
             with torch.no_grad():
                 mlp_weight = metric.module.mlp
@@ -152,9 +252,20 @@ def train(args, train_loader, test_loader, transform_test, net, metric, optimize
                 mAP, top_k = PqDistRet_Ortho(queries, test_labels, train_labels, index, mlp_weight, len_word, num_books, device, top=50)
                 time_elapsed = time.time() - start
                 print("Code generated in {:.0f}min {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
-                print(f'[Evaluate Phase] Epoch: {epoch+1} | MAP: {100. * float(mAP):.2f}% | Top_k: {100. * float(top_k):.2f}%')
+                print('[Evaluate Phase] MAP: %.2f%% top_k: %.2f%%' % (100. * float(mAP), 100. * float(top_k)))
 
-        return avg_loss, accuracy
+            if avg_loss < best_loss:
+                best_loss = avg_loss
+                best_mAP = mAP
+                print('Saving..')
+                checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                torch.save({'backbone': net.state_dict(), 'mlp': metric.module.mlp}, os.path.join(checkpoint_dir, save_path))
+                best_epoch = epoch + 1
+    time_elapsed = time.time() - since
+    print("Training Completed in {:.0f}min {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
+    print("Best mAP {:.4f} at epoch {}".format(best_mAP, best_epoch))
+    print("Model saved as %s" % save_path)
 
 def test(load_path, length, num, words, feature_dim=512):
     print("===============evaluation on model %s===============" % load_path)
@@ -240,7 +351,7 @@ if __name__ == "__main__":
                 'cosface_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
             print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate: %.6f" %
                   (args.dataset, args.bs, args.lr))
-            train(args, train_loader, test_loader, transform_test, net, metric, optimizer, 0, device, feature_dim=512)
+            train(args.save[0], None, None, None, feature_dim=512)
         else:
             if len(args.save) != len(args.num) or len(args.save) != len(args.len) or len(args.save) != len(args.words):
                 print("Warning: Args lengths don't match. Adjusting to shortest length.")
@@ -262,12 +373,7 @@ if __name__ == "__main__":
                         feature_dim = 516
                 else:
                     feature_dim = num_s * words_s
-                train(args, train_loader, test_loader, transform_test, net, metric, optimizer, 0, device, len_word, num_books, feature_dim=feature_dim)
-
-
-
-
-
+                train(args.save[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
 
 
 
