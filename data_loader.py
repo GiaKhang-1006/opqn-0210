@@ -1,6 +1,7 @@
 import torch
 import torchvision.transforms as transforms
 from torchvision import datasets
+import torchvision.io
 import os
 import cv2
 import dlib
@@ -51,6 +52,11 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0
 
     trainset = datasets.ImageFolder(root=train_path, transform=to_tensor)
     testset = datasets.ImageFolder(root=test_path, transform=to_tensor)
+
+    sample_image_path = "/kaggle/input/facescrub-edgeface-0710-1/facescrub/train/actors/sample.jpg"
+    sample_image = torchvision.io.read_image(sample_image_path)
+    transformed = transform_train(sample_image)
+    print("Sample transformed image shape:", transformed.shape, "Mean:", transformed.mean(), "Std:", transformed.std())
 
     # Hàm align dùng dlib (chỉ dùng nếu backbone=='edgeface' và dataset chưa pre-aligned)
     def align_face(img):  # img là PIL Image
