@@ -302,4 +302,3 @@ if __name__ == "__main__":
             else:
                 feature_dim = num_s * words_s
                 train(args.save[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
-```
