@@ -81,7 +81,13 @@ def train(save_path, length, num, words, feature_dim):
         metric = CosFace(in_features=feature_dim, out_features=num_classes, s=64.0, m=0.35)
         metric = nn.DataParallel(metric).to(device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.AdamW([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4)
+        # optimizer = optim.AdamW([{'params': net.parameters()}, {'params': metric.parameters()}], lr=args.lr, weight_decay=5e-4)
+        # scheduler = CosineAnnealingLR(optimizer, T_max=50)
+        # Trong train() của cosface_opqn_main.py, sửa phần pre-train CosFace:
+        optimizer = optim.AdamW([
+            {'params': net.parameters(), 'lr': args.lr},  # Backbone: lr=0.0001
+            {'params': metric.parameters(), 'lr': args.lr * 10}  # CosFace head: lr=0.001
+        ], weight_decay=5e-4)
         scheduler = CosineAnnealingLR(optimizer, T_max=50)
         checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -97,12 +103,30 @@ def train(save_path, length, num, words, feature_dim):
                 outputs = metric(features, targets)
                 loss = criterion(outputs, targets)
                 optimizer.zero_grad()
+                # Trong train(), phần pre-train CosFace, sau loss.backward():
                 loss.backward()
+                grad_norm_backbone = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
+                grad_norm_metric = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
+                print(f"Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f} | Grad_norm_backbone: {grad_norm_backbone:.4f} | Grad_norm_metric: {grad_norm_metric:.4f}")
                 optimizer.step()
                 losses.update(loss.item(), len(inputs))
-                print(f"Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
+                #print(f"Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f}")
             print(f"Pre-train Epoch {epoch+1} | Loss: {losses.avg:.4f}")
             scheduler.step()
+        # Trong train(), sau vòng lặp pre-train:
+        net.eval()
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for inputs, targets in test_loader:
+                inputs, targets = inputs.to(device), targets.to(device)
+                features = net(transform_test(inputs))
+                outputs = metric(features, targets)
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+        print(f"Pre-train Test Accuracy: {100. * correct / total:.2f}%")
+        
         print("Saving pre-trained model...")
         torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path.replace('.tar', '_cosface.tar')))
         return
