@@ -126,9 +126,10 @@ def train(save_path, length, num, words, feature_dim):
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
         print(f"Pre-train Test Accuracy: {100. * correct / total:.2f}%")
-        
+
         print("Saving pre-trained model...")
-        torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path.replace('.tar', '_cosface.tar')))
+        #torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path.replace('.tar', '_cosface.tar')))
+        torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
         return
 
     if args.load:
