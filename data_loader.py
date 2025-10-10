@@ -83,12 +83,14 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0
 
     # Normalize and resize conditional
     if backbone == 'edgeface':
-        norm_mean = [0.618, 0.465, 0.393]
-        norm_std = [0.238, 0.202, 0.190]
+        # norm_mean = [0.618, 0.465, 0.393]
+        # norm_std = [0.238, 0.202, 0.190]
+
+        norm_mean = (0.5, 0.5, 0.5) #Norm [-1 1] thay vì. [0 1]
+        norm_std = (0.5, 0.5, 0.5)
         resize_crop_size = 120
         crop_size = 112
-        # norm_mean = (0.5, 0.5, 0.5) #Code cũ
-        # norm_std = (0.5, 0.5, 0.5)
+        
         
     else:  # resnet (gốc OPQN)
         if dataset == "vggface2" or cross_eval:
