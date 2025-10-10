@@ -116,8 +116,8 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0
                 transforms.Resize(resize_crop_size),
                 transforms.RandomCrop(crop_size),
                 transforms.RandomHorizontalFlip(),
-                transforms.RandomGrayscale(p=0.2),  # Thêm giống EdgeFace
-                transforms.GaussianBlur(kernel_size=3),  # Thêm giống EdgeFace
+                # transforms.RandomGrayscale(p=0.2),  # Thêm giống EdgeFace
+                # transforms.GaussianBlur(kernel_size=3),  # Thêm giống EdgeFace
                 transforms.ConvertImageDtype(torch.float),
                 transforms.Normalize(norm_mean, norm_std),
             )
@@ -134,8 +134,8 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0
                 transforms.Resize(resize_crop_size),
                 transforms.RandomCrop(crop_size),
                 transforms.RandomHorizontalFlip(),
-                transforms.RandomGrayscale(p=0.2),  # Thêm giống EdgeFace
-                transforms.GaussianBlur(kernel_size=3),  # Thêm giống EdgeFace
+                # transforms.RandomGrayscale(p=0.2),  # Thêm giống EdgeFace
+                # transforms.GaussianBlur(kernel_size=3),  # Thêm giống EdgeFace
                 transforms.ConvertImageDtype(torch.float),
                 transforms.Normalize(norm_mean, norm_std),
             )
