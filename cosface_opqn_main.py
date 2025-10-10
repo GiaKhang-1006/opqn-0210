@@ -85,7 +85,7 @@ def train(save_path, length, num, words, feature_dim):
         # scheduler = CosineAnnealingLR(optimizer, T_max=50)
         # Trong train() của cosface_opqn_main.py, sửa phần pre-train CosFace:
         optimizer = optim.AdamW([
-            {'params': net.parameters(), 'lr': args.lr},  # Backbone: lr=0.0001
+            {'params': net.parameters(), 'lr': args.lr * 0.1},  # Backbone: lr=0.0001
             {'params': metric.parameters(), 'lr': args.lr * 10}  # CosFace head: lr=0.001
         ], weight_decay=5e-4)
         scheduler = CosineAnnealingLR(optimizer, T_max=50)
