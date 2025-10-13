@@ -205,7 +205,7 @@ def train(save_path, length, num, words, feature_dim):
                 _, predicted = outputs.max(1)
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
-                print(f"Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f} | Grad_norm_backbone: {grad_norm_b:.4f} | Grad_norm_metric: {grad_norm_m:.4f}")
+                #print(f"Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f} | Grad_norm_backbone: {grad_norm_b:.4f} | Grad_norm_metric: {grad_norm_m:.4f}")
 
             avg_loss = losses.avg
             avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
