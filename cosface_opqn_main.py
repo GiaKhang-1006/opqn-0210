@@ -35,6 +35,12 @@ parser.add_argument('--backbone', type=str, default='resnet', choices=['resnet',
 parser.add_argument('--data_dir', type=str, default='/kaggle/input/facescrub-0210-3', help='Data direction on kaggle for multiple dataset')
 parser.add_argument('--sc', default=30, type=float, help='scale s for initialize metric')
 parser.add_argument('--pretrain_cosface', action='store_true', help='Pretrain with CosFace loss before OrthoPQ')
+parser.add_argument('--s_cosface', default=30.0, type=float, help='scale s for CosFace')  # Thêm
+parser.add_argument('--m_cosface', default=0.2, type=float, help='margin m for CosFace')  # Thêm
+parser.add_argument('--max_norm', default=1.0, type=float, help='gradient clipping max norm for pre-train')  # Thêm
+parser.add_argument('--epochs_cosface', default=50, type=int, help='number of epochs for CosFace pre-training')  # Thêm
+parser.add_argument('--lr_backbone', default=0.0001, type=float, help='learning rate for backbone in pre-train CosFace')  # Thêm
+
 
 try:
     args = parser.parse_args()
@@ -77,25 +83,101 @@ def train(save_path, length, num, words, feature_dim):
     net = nn.DataParallel(net).to(device)
     cudnn.benchmark = True
 
+    # if args.pretrain_cosface:
+    #     print("Pre-training with CosFace loss...")
+    #     metric = CosFace(in_features=feature_dim, out_features=num_classes, s=30.0, m=0.4)
+    #     metric = nn.DataParallel(metric).to(device)
+    #     criterion = nn.CrossEntropyLoss()
+    #     optimizer = optim.AdamW([
+    #         {'params': net.parameters(), 'lr': args.lr},  # lr=0.000001
+    #         {'params': metric.parameters(), 'lr': args.lr * 10}  # lr=0.001
+    #     ], weight_decay=5e-4)
+    #     def poly_decay_with_restarts(epoch):
+    #         base_lr = 1.0
+    #         decay = (1 - (epoch % 10) / 10) ** 0.9  # Decay mỗi 10 epoch
+    #         return base_lr * decay
+    #     #scheduler = LambdaLR(optimizer, lr_lambda=poly_decay_with_restarts)
+    #     scheduler = CosineAnnealingLR(optimizer, T_max=50)
+    #     checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+    #     os.makedirs(checkpoint_dir, exist_ok=True)
+
+    #     for epoch in range(60):
+    #         net.train()
+    #         metric.train()
+    #         losses = AverageMeter()
+    #         grad_norm_backbone = 0
+    #         grad_norm_metric = 0
+    #         correct = 0
+    #         total = 0
+    #         start = time.time()
+    #         for batch_idx, (inputs, targets) in enumerate(train_loader):
+    #             inputs, targets = inputs.to(device), targets.to(device)
+    #             transformed_images = transform_train(inputs)
+    #             features = net(transformed_images)
+    #             outputs = metric(features, targets)
+    #             loss = criterion(outputs, targets)
+    #             optimizer.zero_grad()
+    #             loss.backward()
+    #             grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
+    #             grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
+    #             torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
+    #             optimizer.step()
+    #             losses.update(loss.item(), len(inputs))
+    #             grad_norm_backbone += grad_norm_b
+    #             grad_norm_metric += grad_norm_m
+    #             _, predicted = outputs.max(1)
+    #             total += targets.size(0)
+    #             correct += predicted.eq(targets).sum().item()
+
+    #         # In log trung bình mỗi epoch
+    #         avg_loss = losses.avg
+    #         avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
+    #         avg_grad_norm_metric = grad_norm_metric / len(train_loader)
+    #         accuracy = 100. * correct / total
+    #         epoch_elapsed = time.time() - start
+    #         print(f"Pre-train Epoch {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%")
+
+    #         # Đánh giá test accuracy mỗi 5 epoch
+    #         if (epoch + 1) % 5 == 0:
+    #             net.eval()
+    #             metric.eval()
+    #             test_correct = 0
+    #             test_total = 0
+    #             with torch.no_grad():
+    #                 for inputs, targets in test_loader:
+    #                     inputs, targets = inputs.to(device), targets.to(device)
+    #                     features = net(transform_test(inputs))
+    #                     outputs = metric(features, targets)
+    #                     _, predicted = outputs.max(1)
+    #                     test_total += targets.size(0)
+    #                     test_correct += predicted.eq(targets).sum().item()
+    #             test_accuracy = 100. * test_correct / test_total
+    #             print(f"[Test Phase] Epoch: {epoch+1} | Test Accuracy: {test_accuracy:.2f}%")
+
+    #         scheduler.step()
+
+    #     print("Saving pre-trained model...")
+    #     torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
+    #     return
+
     if args.pretrain_cosface:
         print("Pre-training with CosFace loss...")
-        metric = CosFace(in_features=feature_dim, out_features=num_classes, s=30.0, m=0.4)
+        metric = CosFace(in_features=feature_dim, out_features=num_classes, s=args.s_cosface, m=args.m_cosface)  # Dùng s, m từ argparse
         metric = nn.DataParallel(metric).to(device)
         criterion = nn.CrossEntropyLoss()
+        # Freeze conv1 và layer1 để bảo vệ weights pretrained
+        for name, param in net.named_parameters():
+            if 'conv1' in name or 'layer1' in name:
+                param.requires_grad = False
         optimizer = optim.AdamW([
-            {'params': net.parameters(), 'lr': args.lr},  # lr=0.000001
-            {'params': metric.parameters(), 'lr': args.lr * 10}  # lr=0.001
+            {'params': [p for p in net.parameters() if p.requires_grad], 'lr': args.lr_backbone},  # Dùng lr_backbone
+            {'params': metric.parameters(), 'lr': args.lr_backbone * 10}  # lr metric = lr_backbone * 10
         ], weight_decay=5e-4)
-        def poly_decay_with_restarts(epoch):
-            base_lr = 1.0
-            decay = (1 - (epoch % 10) / 10) ** 0.9  # Decay mỗi 10 epoch
-            return base_lr * decay
-        #scheduler = LambdaLR(optimizer, lr_lambda=poly_decay_with_restarts)
-        scheduler = CosineAnnealingLR(optimizer, T_max=50)
+        scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs_cosface)  # Dùng epochs_cosface
         checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-        for epoch in range(60):
+        for epoch in range(args.epochs_cosface):  # Dùng epochs_cosface
             net.train()
             metric.train()
             losses = AverageMeter()
@@ -114,7 +196,8 @@ def train(save_path, length, num, words, feature_dim):
                 loss.backward()
                 grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
                 grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
-                torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=args.max_norm)  # Dùng max_norm
+                torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=args.max_norm)
                 optimizer.step()
                 losses.update(loss.item(), len(inputs))
                 grad_norm_backbone += grad_norm_b
@@ -122,8 +205,8 @@ def train(save_path, length, num, words, feature_dim):
                 _, predicted = outputs.max(1)
                 total += targets.size(0)
                 correct += predicted.eq(targets).sum().item()
+                print(f"Batch {batch_idx}/{len(train_loader)} | Loss: {loss.item():.4f} | Grad_norm_backbone: {grad_norm_b:.4f} | Grad_norm_metric: {grad_norm_m:.4f}")
 
-            # In log trung bình mỗi epoch
             avg_loss = losses.avg
             avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
             avg_grad_norm_metric = grad_norm_metric / len(train_loader)
@@ -131,7 +214,6 @@ def train(save_path, length, num, words, feature_dim):
             epoch_elapsed = time.time() - start
             print(f"Pre-train Epoch {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%")
 
-            # Đánh giá test accuracy mỗi 5 epoch
             if (epoch + 1) % 5 == 0:
                 net.eval()
                 metric.eval()
@@ -150,9 +232,9 @@ def train(save_path, length, num, words, feature_dim):
 
             scheduler.step()
 
-        print("Saving pre-trained model...")
-        torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
-        return
+    print("Saving pre-trained model...")
+    torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
+    return
 
     if args.load:
         checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
@@ -229,8 +311,8 @@ def train(save_path, length, num, words, feature_dim):
             grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
             grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
             #torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=0.5)  # Giảm max_norm từ 1.0 thành 0.5
-            torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=args.max_norm)  # Giảm max_norm từ 1.0 thành 0.5
+            torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=args.max_norm)
             optimizer.step()
             losses.update(loss.item(), len(inputs))
             loss_clf_avg.update(loss_clf.item(), len(inputs))
@@ -357,11 +439,17 @@ if __name__ == "__main__":
         if not args.save:
             print("Error: --save is required for training mode")
             sys.exit(1)
+        # if args.pretrain_cosface:
+        #     sys.stdout = Logger(os.path.join(save_dir,
+        #         'cosface_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
+        #     print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate backbone: %.6f\n learning rate metric: %.6f" %
+        #           (args.dataset, args.bs, args.lr * 0.01, args.lr * 10))
+        #     train(args.save[0], None, None, None, feature_dim=512)
         if args.pretrain_cosface:
             sys.stdout = Logger(os.path.join(save_dir,
                 'cosface_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
-            print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate backbone: %.6f\n learning rate metric: %.6f" %
-                  (args.dataset, args.bs, args.lr * 0.01, args.lr * 10))
+            print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate backbone: %.6f\n learning rate metric: %.6f\n s: %.1f\n m: %.1f\n max_norm: %.1f\n epochs: %d" %
+                (args.dataset, args.bs, args.lr_backbone, args.lr_backbone * 10, args.s_cosface, args.m_cosface, args.max_norm, args.epochs_cosface))
             train(args.save[0], None, None, None, feature_dim=512)
         else:
             if len(args.save) != len(args.num) or len(args.save) != len(args.len) or len(args.save) != len(args.words):
