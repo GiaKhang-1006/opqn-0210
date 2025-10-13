@@ -37,7 +37,7 @@ parser.add_argument('--sc', default=30, type=float, help='scale s for initialize
 parser.add_argument('--pretrain_cosface', action='store_true', help='Pretrain with CosFace loss before OrthoPQ')
 parser.add_argument('--s_cosface', default=30.0, type=float, help='scale s for CosFace')  # Thêm
 parser.add_argument('--m_cosface', default=0.2, type=float, help='margin m for CosFace')  # Thêm
-parser.add_argument('--max_norm', default=1.0, type=float, help='gradient clipping max norm for pre-train')  # Thêm
+parser.add_argument('--max_norm', default=0.5, type=float, help='gradient clipping max norm for pre-train')  # Thêm
 parser.add_argument('--epochs_cosface', default=50, type=int, help='number of epochs for CosFace pre-training')  # Thêm
 parser.add_argument('--lr_backbone', default=0.0001, type=float, help='learning rate for backbone in pre-train CosFace')  # Thêm
 
