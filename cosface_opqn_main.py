@@ -83,7 +83,7 @@ def train(save_path, length, num, words, feature_dim):
         metric = nn.DataParallel(metric).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.AdamW([
-            {'params': net.parameters(), 'lr': args.lr * 0.01},  # lr=0.000001
+            {'params': net.parameters(), 'lr': args.lr * 0.001},  # lr=0.000001
             {'params': metric.parameters(), 'lr': args.lr * 10}  # lr=0.001
         ], weight_decay=5e-4)
         def poly_decay_with_restarts(epoch):
