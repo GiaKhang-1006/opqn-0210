@@ -108,11 +108,11 @@ def train(save_path, length, num, words, feature_dim):
 
     net = nn.DataParallel(net).to(device)
     
-    # === ĐOẠN CODE CẦN THÊM ĐỂ FREEZE EDGEFACE ===
-    if args.backbone == 'edgeface':
-        print("Freezing EdgeFace Backbone parameters.")
-        for param in net.module.backbone.parameters():
-             param.requires_grad = False
+    # # === ĐOẠN CODE CẦN THÊM ĐỂ FREEZE EDGEFACE ===
+    # if args.backbone == 'edgeface':
+    #     print("Freezing EdgeFace Backbone parameters.")
+    #     for param in net.module.backbone.parameters():
+    #          param.requires_grad = False
 
     metric = nn.DataParallel(metric).to(device)
     cudnn.benchmark = True
