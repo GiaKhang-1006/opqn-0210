@@ -95,7 +95,7 @@ def train(save_path, length, num, words, feature_dim):
         checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-        for epoch in range(100):
+        for epoch in range(60):
             net.train()
             metric.train()
             losses = AverageMeter()
