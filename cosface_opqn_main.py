@@ -15,7 +15,7 @@ from utils import Logger, AverageMeter, compute_quant, compute_quant_indexing, P
 from backbone import resnet20_pq, SphereNet20_pq, EdgeFaceBackbone
 from margin_metric import OrthoPQ, CosFace
 from data_loader import get_datasets_transform
-from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau  # Thêm import ReduceLROnPlateau
+from torch.optim.lr_scheduler import LambdaLR, ReduceLROnPlateau, CosineAnnealingLR  # Thêm import ReduceLROnPlateau
 
 
 parser = argparse.ArgumentParser(description='PyTorch Implementation of Orthonormal Product Quantization for Scalable Face Image Retrieval')
@@ -83,18 +83,19 @@ def train(save_path, length, num, words, feature_dim):
         metric = nn.DataParallel(metric).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.AdamW([
-            {'params': net.parameters(), 'lr': args.lr * 0.001},  # lr=0.000001
+            {'params': net.parameters(), 'lr': args.lr},  # lr=0.000001
             {'params': metric.parameters(), 'lr': args.lr * 10}  # lr=0.001
         ], weight_decay=5e-4)
         def poly_decay_with_restarts(epoch):
             base_lr = 1.0
             decay = (1 - (epoch % 10) / 10) ** 0.9  # Decay mỗi 10 epoch
             return base_lr * decay
-        scheduler = LambdaLR(optimizer, lr_lambda=poly_decay_with_restarts)
+        #scheduler = LambdaLR(optimizer, lr_lambda=poly_decay_with_restarts)
+        scheduler = CosineAnnealingLR(optimizer, T_max=50)
         checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-        for epoch in range(50):
+        for epoch in range(80):
             net.train()
             metric.train()
             losses = AverageMeter()
@@ -227,7 +228,9 @@ def train(save_path, length, num, words, feature_dim):
             loss.backward()
             grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
             grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
-            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
+            #torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=0.5)  # Giảm max_norm từ 1.0 thành 0.5
+            torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=0.5)
             optimizer.step()
             losses.update(loss.item(), len(inputs))
             loss_clf_avg.update(loss_clf.item(), len(inputs))
