@@ -95,7 +95,7 @@ def train(save_path, length, num, words, feature_dim):
         checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-        for epoch in range(80):
+        for epoch in range(100):
             net.train()
             metric.train()
             losses = AverageMeter()
@@ -196,8 +196,8 @@ def train(save_path, length, num, words, feature_dim):
     ]
     optimizer = optim.SGD(optimizer_params, weight_decay=1e-3, momentum=0.9)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
-    EPOCHS = 200 if args.dataset in ["facescrub", "cfw", "youtube"] else 160
-
+    EPOCHS = 300 if args.dataset in ["facescrub", "cfw", "youtube"] else 160
+    # Epoch thay từ 200 lên 300 vì giảm lr từ 0.1 thành 0.005
     since = time.time()
     best_loss = 1e3
 
