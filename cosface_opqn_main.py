@@ -81,10 +81,90 @@ def train(save_path, length, num, words, feature_dim):
     net = nn.DataParallel(net).to(device)
     cudnn.benchmark = True
 
+    # if args.pretrain_cosface:
+    #     print("Pre-training with CosFace loss...")
+    #     metric = CosFace(in_features=feature_dim, out_features=num_classes, s=args.s_cosface, m=args.m_cosface)
+    #     metric = nn.DataParallel(metric).to(device)
+    #     criterion = nn.CrossEntropyLoss()
+    #     for name, param in net.named_parameters():
+    #         if 'conv1' in name or 'layer1' in name:
+    #             param.requires_grad = False
+    #     optimizer = optim.AdamW([
+    #         {'params': [p for p in net.parameters() if p.requires_grad], 'lr': args.lr_backbone},
+    #         {'params': metric.parameters(), 'lr': args.lr_backbone * 10}
+    #     ], weight_decay=5e-4)
+    #     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs_cosface)
+    #     checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+    #     os.makedirs(checkpoint_dir, exist_ok=True)
+
+    #     for epoch in range(args.epochs_cosface):
+    #         net.train()
+    #         metric.train()
+    #         losses = AverageMeter()
+    #         grad_norm_backbone = 0
+    #         grad_norm_metric = 0
+    #         correct = 0
+    #         total = 0
+    #         start = time.time()
+    #         for batch_idx, (inputs, targets) in enumerate(train_loader):
+    #             inputs, targets = inputs.to(device), targets.to(device)
+    #             transformed_images = transform_train(inputs)
+    #             features = net(transformed_images)
+    #             outputs = metric(features, targets)
+    #             loss = criterion(outputs, targets)
+    #             optimizer.zero_grad()
+    #             loss.backward()
+    #             grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
+    #             grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
+    #             torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=args.max_norm)
+    #             torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=args.max_norm)
+    #             optimizer.step()
+    #             losses.update(loss.item(), len(inputs))
+    #             grad_norm_backbone += grad_norm_b
+    #             grad_norm_metric += grad_norm_m
+    #             _, predicted = outputs.max(1)
+    #             total += targets.size(0)
+    #             correct += predicted.eq(targets).sum().item()
+
+    #         avg_loss = losses.avg
+    #         avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
+    #         avg_grad_norm_metric = grad_norm_metric / len(train_loader)
+    #         accuracy = 100. * correct / total
+    #         epoch_elapsed = time.time() - start
+    #         print(f"Pre-train Epoch {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%")
+
+    #         if (epoch + 1) % 5 == 0:
+    #             net.eval()
+    #             metric.eval()
+    #             test_correct = 0
+    #             test_total = 0
+    #             with torch.no_grad():
+    #                 for inputs, targets in test_loader:
+    #                     inputs, targets = inputs.to(device), targets.to(device)
+    #                     features = net(transform_test(inputs))
+    #                     outputs = metric(features, targets)
+    #                     _, predicted = outputs.max(1)
+    #                     test_total += targets.size(0)
+    #                     test_correct += predicted.eq(targets).sum().item()
+    #             test_accuracy = 100. * test_correct / test_total
+    #             print(f"[Test Phase] Epoch: {epoch+1} | Test Accuracy: {test_accuracy:.2f}%")
+    #         scheduler.step()
+
+    #     print("Saving pre-trained model...")
+    #     torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
+    #     return
     if args.pretrain_cosface:
         print("Pre-training with CosFace loss...")
+        # Chọn feature_dim dựa trên args.len
+        feature_dim = 516 if args.len and args.len[0] == 36 else 512
+        print(f"Selected feature_dim: {feature_dim} for code length: {args.len[0] if args.len else 'N/A'}")
+        
         metric = CosFace(in_features=feature_dim, out_features=num_classes, s=args.s_cosface, m=args.m_cosface)
+        net = EdgeFaceBackbone(feature_dim=feature_dim)
         metric = nn.DataParallel(metric).to(device)
+        net = nn.DataParallel(net).to(device)
+        cudnn.benchmark = True
+        
         criterion = nn.CrossEntropyLoss()
         for name, param in net.named_parameters():
             if 'conv1' in name or 'layer1' in name:
@@ -537,6 +617,8 @@ if __name__ == "__main__":
             print("Error: --save is required for training mode")
             sys.exit(1)
         if args.pretrain_cosface:
+            if not args.len:
+                args.len = [36] # Mặc định 36 bits để trigger feature_dim=516
             sys.stdout = Logger(os.path.join(save_dir,
                 'cosface_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
             print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate backbone: %.6f\n learning rate metric: %.6f\n s: %.1f\n m: %.1f\n max_norm: %.1f\n epochs: %d" %
