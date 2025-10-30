@@ -82,25 +82,41 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0
     # align_transform = transforms.Lambda(align_face) if backbone == 'edgeface' else nn.Identity()
 
     # Normalize and resize conditional
+    # if backbone == 'edgeface':
+    #     # norm_mean = [0.618, 0.465, 0.393]
+    #     # norm_std = [0.238, 0.202, 0.190]
+    #     norm_mean = (0.5, 0.5, 0.5) #Norm [-1 1] thay vì. [0 1]
+    #     norm_std = (0.5, 0.5, 0.5)
+    #     resize_crop_size = 120
+    #     crop_size = 112
+        
+    # Normalize and resize conditional
     if backbone == 'edgeface':
-        # norm_mean = [0.618, 0.465, 0.393]
-        # norm_std = [0.238, 0.202, 0.190]
+        # TỰ ĐỘNG PHÁT HIỆN DATA 32x32 QUA ĐƯỜNG DẪN
+        if '32x32' in data_dir.lower() or '32' in data_dir.lower():
+            # DÙNG CHO DATASET 32x32 → CHỈ ĐỔI KÍCH THƯỚC
+            norm_mean = (0.5, 0.5, 0.5)  # GIỮ NGUYÊN [-1, 1]
+            norm_std  = (0.5, 0.5, 0.5)
+            resize_crop_size = 35
+            crop_size = 32
+            print("EdgeFace: Phát hiện dataset 32x32 → Resize(35) + Crop(32)")
+        else:
+            # MẶC ĐỊNH 112x112
+            norm_mean = (0.5, 0.5, 0.5)
+            norm_std  = (0.5, 0.5, 0.5)
+            resize_crop_size = 120
+            crop_size = 112
+            print("EdgeFace: Dùng Resize(120) + Crop(112)")
 
-        norm_mean = (0.5, 0.5, 0.5) #Norm [-1 1] thay vì. [0 1]
-        norm_std = (0.5, 0.5, 0.5)
-        resize_crop_size = 120
-        crop_size = 112
-        
-        
-    else:  # resnet (gốc OPQN)
+    else:  # resnet (gốc OPQN) ← ĐÚNG VỊ TRÍ
         if dataset == "vggface2" or cross_eval:
             norm_mean = (0.5, 0.5, 0.5)
-            norm_std = (0.5, 0.5, 0.5)
+            norm_std  = (0.5, 0.5, 0.5)
             resize_crop_size = 120
             crop_size = 112
         else:  # facescrub
             norm_mean = [0.639, 0.479, 0.404]
-            norm_std = [0.216, 0.183, 0.171]
+            norm_std  = [0.216, 0.183, 0.171]
             resize_crop_size = 35
             crop_size = 32
 
@@ -121,8 +137,8 @@ def get_datasets_transform(dataset, data_dir="/kaggle/input/facescrub-edgeface-0
                 transforms.Resize(resize_crop_size),
                 transforms.RandomCrop(crop_size),
                 transforms.RandomHorizontalFlip(),
-                # transforms.RandomGrayscale(p=0.2),  # Thêm giống EdgeFace
-                # transforms.GaussianBlur(kernel_size=3),  # Thêm giống EdgeFace
+                transforms.RandomGrayscale(p=0.2),  # Thêm giống EdgeFace
+                transforms.GaussianBlur(kernel_size=3),  # Thêm giống EdgeFace
                 transforms.ConvertImageDtype(torch.float),
                 transforms.Normalize(norm_mean, norm_std),
             )
