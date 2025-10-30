@@ -38,7 +38,7 @@ parser.add_argument('--m_cosface', default=0.2, type=float, help='margin m for C
 parser.add_argument('--max_norm', default=0.5, type=float, help='gradient clipping max norm for pre-train')
 parser.add_argument('--epochs_cosface', default=50, type=int, help='number of epochs for CosFace pre-training')
 parser.add_argument('--lr_backbone', default=0.0001, type=float, help='learning rate for backbone in pre-train CosFace')
-
+parser.add_argument('--input_size', type=int, default=112, help='Input size for model: 32 or 112')
 
 try:
     args = parser.parse_args()

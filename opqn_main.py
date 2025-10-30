@@ -33,6 +33,8 @@ parser.add_argument('--miu', default=0.1, type=float, help='Balance weight of re
 parser.add_argument('--backbone', type=str, default='resnet', choices=['resnet', 'edgeface'], help='Backbone type: resnet or edgeface')
 parser.add_argument('--data_dir', type=str, default='/kaggle/input/facescrub-0210-3', help='Data direction on kaggle for multiple dataset')
 parser.add_argument('--sc', default=30, type=float, help='scale s for initialize metric ')
+parser.add_argument('--input_size', type=int, default=112, help='Input size for model: 32 or 112')
+
 
 
 try:
