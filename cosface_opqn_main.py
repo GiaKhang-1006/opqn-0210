@@ -81,78 +81,6 @@ def train(save_path, length, num, words, feature_dim):
     net = nn.DataParallel(net).to(device)
     cudnn.benchmark = True
 
-    # if args.pretrain_cosface:
-    #     print("Pre-training with CosFace loss...")
-    #     metric = CosFace(in_features=feature_dim, out_features=num_classes, s=args.s_cosface, m=args.m_cosface)
-    #     metric = nn.DataParallel(metric).to(device)
-    #     criterion = nn.CrossEntropyLoss()
-    #     for name, param in net.named_parameters():
-    #         if 'conv1' in name or 'layer1' in name:
-    #             param.requires_grad = False
-    #     optimizer = optim.AdamW([
-    #         {'params': [p for p in net.parameters() if p.requires_grad], 'lr': args.lr_backbone},
-    #         {'params': metric.parameters(), 'lr': args.lr_backbone * 10}
-    #     ], weight_decay=5e-4)
-    #     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs_cosface)
-    #     checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
-    #     os.makedirs(checkpoint_dir, exist_ok=True)
-
-    #     for epoch in range(args.epochs_cosface):
-    #         net.train()
-    #         metric.train()
-    #         losses = AverageMeter()
-    #         grad_norm_backbone = 0
-    #         grad_norm_metric = 0
-    #         correct = 0
-    #         total = 0
-    #         start = time.time()
-    #         for batch_idx, (inputs, targets) in enumerate(train_loader):
-    #             inputs, targets = inputs.to(device), targets.to(device)
-    #             transformed_images = transform_train(inputs)
-    #             features = net(transformed_images)
-    #             outputs = metric(features, targets)
-    #             loss = criterion(outputs, targets)
-    #             optimizer.zero_grad()
-    #             loss.backward()
-    #             grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
-    #             grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
-    #             torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=args.max_norm)
-    #             torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=args.max_norm)
-    #             optimizer.step()
-    #             losses.update(loss.item(), len(inputs))
-    #             grad_norm_backbone += grad_norm_b
-    #             grad_norm_metric += grad_norm_m
-    #             _, predicted = outputs.max(1)
-    #             total += targets.size(0)
-    #             correct += predicted.eq(targets).sum().item()
-
-    #         avg_loss = losses.avg
-    #         avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
-    #         avg_grad_norm_metric = grad_norm_metric / len(train_loader)
-    #         accuracy = 100. * correct / total
-    #         epoch_elapsed = time.time() - start
-    #         print(f"Pre-train Epoch {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%")
-
-    #         if (epoch + 1) % 5 == 0:
-    #             net.eval()
-    #             metric.eval()
-    #             test_correct = 0
-    #             test_total = 0
-    #             with torch.no_grad():
-    #                 for inputs, targets in test_loader:
-    #                     inputs, targets = inputs.to(device), targets.to(device)
-    #                     features = net(transform_test(inputs))
-    #                     outputs = metric(features, targets)
-    #                     _, predicted = outputs.max(1)
-    #                     test_total += targets.size(0)
-    #                     test_correct += predicted.eq(targets).sum().item()
-    #             test_accuracy = 100. * test_correct / test_total
-    #             print(f"[Test Phase] Epoch: {epoch+1} | Test Accuracy: {test_accuracy:.2f}%")
-    #         scheduler.step()
-
-    #     print("Saving pre-trained model...")
-    #     torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
-    #     return
     if args.pretrain_cosface:
         print("Pre-training with CosFace loss...")
         # Chọn feature_dim dựa trên args.len
@@ -368,6 +296,224 @@ def train(save_path, length, num, words, feature_dim):
     print("Training Completed in {:.0f}min {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
     print("Best mAP {:.4f} at epoch {}".format(best_mAP, best_epoch))
     print("Model saved as %s" % save_path)
+
+
+def test(load_path, length, num, words, feature_dim=512):
+    len_bit = int(num * math.log(words, 2))
+    assert length == len_bit, "something went wrong with code length"
+
+    print(f"=============== Evaluation on model {load_path} ===============")
+    num_classes = len(trainset.classes)
+    num_classes_test = len(testset.classes)
+    print(f"Number of train identities: {num_classes}")
+    print(f"Number of test identities: {num_classes_test}")
+    print(f"Number of training images: {len(trainset)}")
+    print(f"Number of test images: {len(testset)}")
+    print(f"Number of training batches per epoch: {len(train_loader)}")
+    print(f"Number of testing batches per epoch: {len(test_loader)}")
+
+    if args.cross_dataset:
+        if args.backbone == 'edgeface':
+            net = EdgeFaceBackbone(feature_dim=feature_dim)
+        else:
+            net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+    else:
+        if args.dataset in ["facescrub", "cfw", "youtube"]:
+            if args.backbone == 'edgeface':
+                net = EdgeFaceBackbone(feature_dim=feature_dim)
+            else:
+                net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
+        else:
+            if args.backbone == 'edgeface':
+                net = EdgeFaceBackbone(feature_dim=feature_dim)
+            else:
+                net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
+
+    net = nn.DataParallel(net).to(device)
+
+    # Kiểm tra nếu là đường dẫn tuyệt đối (ví dụ: /kaggle/input/...)
+    if os.path.isabs(load_path):
+        checkpoint_path = load_path
+    else:
+        checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+        checkpoint_path = os.path.join(checkpoint_dir, load_path)
+
+    # Kiểm tra xem file có tồn tại không trước khi load
+    if not os.path.exists(checkpoint_path):
+        print(f"Error: Checkpoint file {checkpoint_path} not found")
+        sys.exit(1)
+        
+    print(f"Loading pretrained weights from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path)
+    net.load_state_dict(checkpoint['backbone'])
+    mlp_weight = checkpoint.get('mlp', None)  # Sử dụng get để tránh lỗi nếu 'mlp' không tồn tại
+
+    len_word = int(feature_dim / num)
+    net.eval()
+    
+    with torch.no_grad():
+        # Tính index cho tập train
+        index, train_labels = compute_quant_indexing(transform_test, train_loader, net, len_word, mlp_weight, device)
+        
+        # Đo thời gian truy vấn cho tập test
+        start_total = time.perf_counter()  # Thời gian tổng
+        query_features, test_labels = compute_quant(transform_test, test_loader, net, device)
+        
+        # Đo thời gian riêng cho tính mAP
+        start_map = time.perf_counter()
+        mAP, _ = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=len(trainset))
+        map_time_ms = (time.perf_counter() - start_map) * 1000  # ms
+        map_time_per_image = map_time_ms / len(testset)  # ms/image
+        
+        # In mAP và thời gian mAP
+        print(f"[Evaluate Phase] mAP: {100. * float(mAP):.2f}%")
+        print(f"mAP computation time: {map_time_ms:.2f} ms ({map_time_per_image:.4f} ms/image)")
+        
+        # Vòng lặp cho top-k từ 10 đến 100, step 10
+        for k in range(10, 101, 10):
+            _, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=k)
+            print(f"[Evaluate Phase @ top-{k}] top_k: {100. * float(top_k):.2f}%")
+        
+        # Tổng thời gian (bao gồm compute_quant + mAP + top-k)
+        total_query_time = (time.perf_counter() - start_total) * 1000  # ms
+        avg_query_time = total_query_time / len(testset)  # ms/query
+    
+    print(f"Total query time (feature extraction + mAP + top-k): {total_query_time:.2f} ms")
+    print(f"Average query time: {avg_query_time:.4f} ms/query")
+    
+if __name__ == "__main__":
+    save_dir = 'log'
+    if args.evaluate:
+        if not args.load:
+            print("Error: --load is required for evaluation mode")
+            sys.exit(1)
+        if len(args.load) != len(args.num) or len(args.load) != len(args.len) or len(args.load) != len(args.words):
+            print("Warning: Args lengths don't match. Adjusting to shortest length.")
+            min_len = min(len(args.load), len(args.num), len(args.len), len(args.words))
+            args.load = args.load[:min_len]
+            args.num = args.num[:min_len]
+            args.len = args.len[:min_len]
+            args.words = args.words[:min_len]
+        for i, (num_s, words_s) in enumerate(zip(args.num, args.words)):
+            if args.cross_dataset:
+                feature_dim = num_s * words_s
+            else:
+                if args.dataset != "vggface2":
+                    if args.len[i] != 36:
+                        feature_dim = 512
+                    else:
+                        feature_dim = 516
+                else:
+                    feature_dim = num_s * words_s
+            test(args.load[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
+    else:
+        if not args.save:
+            print("Error: --save is required for training mode")
+            sys.exit(1)
+        if args.pretrain_cosface:
+            if not args.len:
+                args.len = [36] # Mặc định 36 bits để trigger feature_dim=516
+            sys.stdout = Logger(os.path.join(save_dir,
+                'cosface_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
+            print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate backbone: %.6f\n learning rate metric: %.6f\n s: %.1f\n m: %.1f\n max_norm: %.1f\n epochs: %d" %
+                  (args.dataset, args.bs, args.lr_backbone, args.lr_backbone * 10, args.s_cosface, args.m_cosface, args.max_norm, args.epochs_cosface))
+            train(args.save[0], None, None, None, feature_dim=512)
+        else:
+            if len(args.save) != len(args.num) or len(args.save) != len(args.len) or len(args.save) != len(args.words):
+                print("Warning: Args lengths don't match. Adjusting to shortest length.")
+                min_len = min(len(args.save), len(args.num), len(args.len), len(args.words))
+                args.save = args.save[:min_len]
+                args.num = args.num[:min_len]
+                args.len = args.len[:min_len]
+                args.words = args.words[:min_len]
+            for i, (num_s, words_s) in enumerate(zip(args.num, args.words)):
+                sys.stdout = Logger(os.path.join(save_dir,
+                    str(args.len[i]) + 'bits' + '_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
+                print("[Configuration] Training on dataset: %s\n Len_bits: %d\n Batch_size: %d\n learning rate: %.3f\n num_books: %d\n num_words: %d" %
+                      (args.dataset, args.len[i], args.bs, args.lr, num_s, words_s))
+                print("HyperParams:\nmargin: %.3f\t miu: %.4f" % (args.margin, args.miu))
+                if args.dataset != "vggface2":
+                    if args.len[i] != 36:
+                        feature_dim = 512
+                    else:
+                        feature_dim = 516
+                else:
+                    feature_dim = num_s * words_s
+                train(args.save[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
+
+
+# if args.pretrain_cosface:
+    #     print("Pre-training with CosFace loss...")
+    #     metric = CosFace(in_features=feature_dim, out_features=num_classes, s=args.s_cosface, m=args.m_cosface)
+    #     metric = nn.DataParallel(metric).to(device)
+    #     criterion = nn.CrossEntropyLoss()
+    #     for name, param in net.named_parameters():
+    #         if 'conv1' in name or 'layer1' in name:
+    #             param.requires_grad = False
+    #     optimizer = optim.AdamW([
+    #         {'params': [p for p in net.parameters() if p.requires_grad], 'lr': args.lr_backbone},
+    #         {'params': metric.parameters(), 'lr': args.lr_backbone * 10}
+    #     ], weight_decay=5e-4)
+    #     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs_cosface)
+    #     checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
+    #     os.makedirs(checkpoint_dir, exist_ok=True)
+
+    #     for epoch in range(args.epochs_cosface):
+    #         net.train()
+    #         metric.train()
+    #         losses = AverageMeter()
+    #         grad_norm_backbone = 0
+    #         grad_norm_metric = 0
+    #         correct = 0
+    #         total = 0
+    #         start = time.time()
+    #         for batch_idx, (inputs, targets) in enumerate(train_loader):
+    #             inputs, targets = inputs.to(device), targets.to(device)
+    #             transformed_images = transform_train(inputs)
+    #             features = net(transformed_images)
+    #             outputs = metric(features, targets)
+    #             loss = criterion(outputs, targets)
+    #             optimizer.zero_grad()
+    #             loss.backward()
+    #             grad_norm_b = torch.norm(torch.cat([p.grad.flatten() for p in net.parameters() if p.grad is not None])).item()
+    #             grad_norm_m = torch.norm(torch.cat([p.grad.flatten() for p in metric.parameters() if p.grad is not None])).item()
+    #             torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=args.max_norm)
+    #             torch.nn.utils.clip_grad_norm_(metric.parameters(), max_norm=args.max_norm)
+    #             optimizer.step()
+    #             losses.update(loss.item(), len(inputs))
+    #             grad_norm_backbone += grad_norm_b
+    #             grad_norm_metric += grad_norm_m
+    #             _, predicted = outputs.max(1)
+    #             total += targets.size(0)
+    #             correct += predicted.eq(targets).sum().item()
+
+    #         avg_loss = losses.avg
+    #         avg_grad_norm_backbone = grad_norm_backbone / len(train_loader)
+    #         avg_grad_norm_metric = grad_norm_metric / len(train_loader)
+    #         accuracy = 100. * correct / total
+    #         epoch_elapsed = time.time() - start
+    #         print(f"Pre-train Epoch {epoch+1} | Loss: {avg_loss:.4f} | Grad_norm_backbone: {avg_grad_norm_backbone:.4f} | Grad_norm_metric: {avg_grad_norm_metric:.4f} | Accuracy: {accuracy:.2f}%")
+
+    #         if (epoch + 1) % 5 == 0:
+    #             net.eval()
+    #             metric.eval()
+    #             test_correct = 0
+    #             test_total = 0
+    #             with torch.no_grad():
+    #                 for inputs, targets in test_loader:
+    #                     inputs, targets = inputs.to(device), targets.to(device)
+    #                     features = net(transform_test(inputs))
+    #                     outputs = metric(features, targets)
+    #                     _, predicted = outputs.max(1)
+    #                     test_total += targets.size(0)
+    #                     test_correct += predicted.eq(targets).sum().item()
+    #             test_accuracy = 100. * test_correct / test_total
+    #             print(f"[Test Phase] Epoch: {epoch+1} | Test Accuracy: {test_accuracy:.2f}%")
+    #         scheduler.step()
+
+    #     print("Saving pre-trained model...")
+    #     torch.save({'backbone': net.state_dict()}, os.path.join(checkpoint_dir, save_path))
+    #     return
 
 # def test(load_path, length, num, words, feature_dim=512):
 #     print("===============evaluation on model %s===============" % load_path)
@@ -586,153 +732,6 @@ def train(save_path, length, num, words, feature_dim):
     
 #     print(f"Query completed in {total_query_time:.2f} ms")
 #     print(f"Average query time: {avg_query_time:.4f} ms/query")
-
-
-def test(load_path, length, num, words, feature_dim=512):
-    len_bit = int(num * math.log(words, 2))
-    assert length == len_bit, "something went wrong with code length"
-
-    print(f"=============== Evaluation on model {load_path} ===============")
-    num_classes = len(trainset.classes)
-    num_classes_test = len(testset.classes)
-    print(f"Number of train identities: {num_classes}")
-    print(f"Number of test identities: {num_classes_test}")
-    print(f"Number of training images: {len(trainset)}")
-    print(f"Number of test images: {len(testset)}")
-    print(f"Number of training batches per epoch: {len(train_loader)}")
-    print(f"Number of testing batches per epoch: {len(test_loader)}")
-
-    if args.cross_dataset:
-        if args.backbone == 'edgeface':
-            net = EdgeFaceBackbone(feature_dim=feature_dim)
-        else:
-            net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
-    else:
-        if args.dataset in ["facescrub", "cfw", "youtube"]:
-            if args.backbone == 'edgeface':
-                net = EdgeFaceBackbone(feature_dim=feature_dim)
-            else:
-                net = resnet20_pq(num_layers=20, feature_dim=feature_dim, channel_max=512, size=4)
-        else:
-            if args.backbone == 'edgeface':
-                net = EdgeFaceBackbone(feature_dim=feature_dim)
-            else:
-                net = resnet20_pq(num_layers=20, feature_dim=feature_dim)
-
-    net = nn.DataParallel(net).to(device)
-
-    # Kiểm tra nếu là đường dẫn tuyệt đối (ví dụ: /kaggle/input/...)
-    if os.path.isabs(load_path):
-        checkpoint_path = load_path
-    else:
-        checkpoint_dir = '/kaggle/working/opqn-0210/checkpoint/' if 'kaggle' in os.environ.get('PWD', '') else 'checkpoint'
-        checkpoint_path = os.path.join(checkpoint_dir, load_path)
-
-    # Kiểm tra xem file có tồn tại không trước khi load
-    if not os.path.exists(checkpoint_path):
-        print(f"Error: Checkpoint file {checkpoint_path} not found")
-        sys.exit(1)
-        
-    print(f"Loading pretrained weights from {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path)
-    net.load_state_dict(checkpoint['backbone'])
-    mlp_weight = checkpoint.get('mlp', None)  # Sử dụng get để tránh lỗi nếu 'mlp' không tồn tại
-
-    len_word = int(feature_dim / num)
-    net.eval()
-    
-    with torch.no_grad():
-        # Tính index cho tập train
-        index, train_labels = compute_quant_indexing(transform_test, train_loader, net, len_word, mlp_weight, device)
-        
-        # Đo thời gian truy vấn cho tập test
-        start_total = time.perf_counter()  # Thời gian tổng
-        query_features, test_labels = compute_quant(transform_test, test_loader, net, device)
-        
-        # Đo thời gian riêng cho tính mAP
-        start_map = time.perf_counter()
-        mAP, _ = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=len(trainset))
-        map_time_ms = (time.perf_counter() - start_map) * 1000  # ms
-        map_time_per_image = map_time_ms / len(testset)  # ms/image
-        
-        # In mAP và thời gian mAP
-        print(f"[Evaluate Phase] mAP: {100. * float(mAP):.2f}%")
-        print(f"mAP computation time: {map_time_ms:.2f} ms ({map_time_per_image:.4f} ms/image)")
-        
-        # Vòng lặp cho top-k từ 10 đến 100, step 10
-        for k in range(10, 101, 10):
-            _, top_k = PqDistRet_Ortho(query_features, test_labels, train_labels, index, mlp_weight, len_word, num, device, top=k)
-            print(f"[Evaluate Phase @ top-{k}] top_k: {100. * float(top_k):.2f}%")
-        
-        # Tổng thời gian (bao gồm compute_quant + mAP + top-k)
-        total_query_time = (time.perf_counter() - start_total) * 1000  # ms
-        avg_query_time = total_query_time / len(testset)  # ms/query
-    
-    print(f"Total query time (feature extraction + mAP + top-k): {total_query_time:.2f} ms")
-    print(f"Average query time: {avg_query_time:.4f} ms/query")
-    
-if __name__ == "__main__":
-    save_dir = 'log'
-    if args.evaluate:
-        if not args.load:
-            print("Error: --load is required for evaluation mode")
-            sys.exit(1)
-        if len(args.load) != len(args.num) or len(args.load) != len(args.len) or len(args.load) != len(args.words):
-            print("Warning: Args lengths don't match. Adjusting to shortest length.")
-            min_len = min(len(args.load), len(args.num), len(args.len), len(args.words))
-            args.load = args.load[:min_len]
-            args.num = args.num[:min_len]
-            args.len = args.len[:min_len]
-            args.words = args.words[:min_len]
-        for i, (num_s, words_s) in enumerate(zip(args.num, args.words)):
-            if args.cross_dataset:
-                feature_dim = num_s * words_s
-            else:
-                if args.dataset != "vggface2":
-                    if args.len[i] != 36:
-                        feature_dim = 512
-                    else:
-                        feature_dim = 516
-                else:
-                    feature_dim = num_s * words_s
-            test(args.load[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
-    else:
-        if not args.save:
-            print("Error: --save is required for training mode")
-            sys.exit(1)
-        if args.pretrain_cosface:
-            if not args.len:
-                args.len = [36] # Mặc định 36 bits để trigger feature_dim=516
-            sys.stdout = Logger(os.path.join(save_dir,
-                'cosface_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
-            print("[Configuration] Pre-training on dataset: %s\n Batch_size: %d\n learning rate backbone: %.6f\n learning rate metric: %.6f\n s: %.1f\n m: %.1f\n max_norm: %.1f\n epochs: %d" %
-                  (args.dataset, args.bs, args.lr_backbone, args.lr_backbone * 10, args.s_cosface, args.m_cosface, args.max_norm, args.epochs_cosface))
-            train(args.save[0], None, None, None, feature_dim=512)
-        else:
-            if len(args.save) != len(args.num) or len(args.save) != len(args.len) or len(args.save) != len(args.words):
-                print("Warning: Args lengths don't match. Adjusting to shortest length.")
-                min_len = min(len(args.save), len(args.num), len(args.len), len(args.words))
-                args.save = args.save[:min_len]
-                args.num = args.num[:min_len]
-                args.len = args.len[:min_len]
-                args.words = args.words[:min_len]
-            for i, (num_s, words_s) in enumerate(zip(args.num, args.words)):
-                sys.stdout = Logger(os.path.join(save_dir,
-                    str(args.len[i]) + 'bits' + '_' + args.dataset + '_' + datetime.now().strftime('%m%d%H%M') + '.txt'))
-                print("[Configuration] Training on dataset: %s\n Len_bits: %d\n Batch_size: %d\n learning rate: %.3f\n num_books: %d\n num_words: %d" %
-                      (args.dataset, args.len[i], args.bs, args.lr, num_s, words_s))
-                print("HyperParams:\nmargin: %.3f\t miu: %.4f" % (args.margin, args.miu))
-                if args.dataset != "vggface2":
-                    if args.len[i] != 36:
-                        feature_dim = 512
-                    else:
-                        feature_dim = 516
-                else:
-                    feature_dim = num_s * words_s
-                train(args.save[i], args.len[i], num_s, words_s, feature_dim=feature_dim)
-
-
-
 
 
 
